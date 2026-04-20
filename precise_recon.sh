@@ -123,25 +123,86 @@ section() {
 die()  { warn "$*"; exit 1; }
 count_safe() { [[ -f "$1" ]] && wc -l < "$1" || echo "0"; }
 
-# ── DEPENDENCY CHECK ──────────────────────────────────────────
+# ── AUTO-INSTALLER ────────────────────────────────────────────
 print_banner
-section "DEPENDENCY CHECK"
+section "CHECKING & INSTALLING DEPENDENCIES"
 
+# Ensure Go is available
+ensure_go() {
+  if command -v go &>/dev/null; then
+    echo -e "  ${GREEN}✓${RESET} go $(go version | awk '{print $3}')"
+    return 0
+  fi
+  echo -e "  ${ORANGE}[*]${RESET} Go not found — installing..."
+  local arch; arch=$(uname -m)
+  local goarch="amd64"
+  [[ "$arch" == "aarch64" || "$arch" == "arm64" ]] && goarch="arm64"
+  local GO_VER="1.22.3"
+  local tarball="go${GO_VER}.linux-${goarch}.tar.gz"
+  curl -fsSL "https://go.dev/dl/$tarball" -o "/tmp/$tarball" || die "Failed to download Go"
+  sudo rm -rf /usr/local/go
+  sudo tar -C /usr/local -xzf "/tmp/$tarball"
+  export PATH="$PATH:/usr/local/go/bin"
+  echo -e "  ${GREEN}✓${RESET} Go installed"
+}
+
+# Install a Go binary tool
+install_go_tool() {
+  local name="$1" pkg="$2"
+  if command -v "$name" &>/dev/null; then
+    echo -e "  ${GREEN}✓${RESET} $name"
+    return 0
+  fi
+  echo -e "  ${ORANGE}[*]${RESET} Installing $name..."
+  GOPATH="${GOPATH:-$HOME/go}" GOBIN="$HOME/go/bin" \
+    /usr/local/go/bin/go install "$pkg" 2>/dev/null \
+    || go install "$pkg" 2>/dev/null \
+    || { echo -e "  ${RED}✗${RESET} Failed to install $name"; return 1; }
+  # Add ~/go/bin to PATH for this session if not already there
+  [[ ":$PATH:" != *":$HOME/go/bin:"* ]] && export PATH="$PATH:$HOME/go/bin"
+  echo -e "  ${GREEN}✓${RESET} $name installed"
+}
+
+# Install apt package quietly
+install_apt() {
+  local pkg="$1"
+  if command -v "$pkg" &>/dev/null; then
+    echo -e "  ${GREEN}✓${RESET} $pkg"
+    return 0
+  fi
+  echo -e "  ${ORANGE}[*]${RESET} Installing $pkg via apt..."
+  sudo apt-get install -y -qq "$pkg" 2>/dev/null \
+    && echo -e "  ${GREEN}✓${RESET} $pkg installed" \
+    || echo -e "  ${RED}✗${RESET} Could not install $pkg (non-fatal)"
+}
+
+# ── Run installer ──────────────────────────────────────────────
+# Add ~/go/bin to PATH now in case tools were previously installed
+[[ ":$PATH:" != *":$HOME/go/bin:"* ]] && export PATH="$PATH:$HOME/go/bin"
+
+ensure_go
+
+install_go_tool "subfinder"   "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
+install_go_tool "assetfinder" "github.com/tomnomnom/assetfinder@latest"
+install_go_tool "dnsx"        "github.com/projectdiscovery/dnsx/cmd/dnsx@latest"
+install_go_tool "httpx"       "github.com/projectdiscovery/httpx/cmd/httpx@latest"
+install_go_tool "katana"      "github.com/projectdiscovery/katana/cmd/katana@latest"
+install_go_tool "gau"         "github.com/lc/gau/v2/cmd/gau@latest"
+install_apt     "parallel"
+
+# Optional
+HAS_PARALLEL=false; command -v parallel &>/dev/null && HAS_PARALLEL=true
+HAS_AMASS=false;    command -v amass    &>/dev/null && HAS_AMASS=true
+HAS_GAU=false;      command -v gau      &>/dev/null && HAS_GAU=true
+
+# Final check — these must exist by now
 MISSING=()
 for tool in subfinder assetfinder dnsx httpx katana curl sort awk grep md5sum wc; do
-  if command -v "$tool" &>/dev/null; then
-    echo -e "  ${GREEN}✓${RESET} $tool"
-  else
-    echo -e "  ${RED}✗${RESET} $tool ${RED}(missing)${RESET}"
-    MISSING+=("$tool")
-  fi
+  command -v "$tool" &>/dev/null || MISSING+=("$tool")
 done
+[[ ${#MISSING[@]} -gt 0 ]] && die "Still missing after install attempt: ${MISSING[*]}"
 
-[[ ${#MISSING[@]} -gt 0 ]] && die "Missing required tools: ${MISSING[*]}"
-
-HAS_PARALLEL=false; command -v parallel &>/dev/null && HAS_PARALLEL=true && echo -e "  ${GREEN}✓${RESET} parallel (optional)"
-HAS_AMASS=false;    command -v amass   &>/dev/null && HAS_AMASS=true   && echo -e "  ${GREEN}✓${RESET} amass (optional)"
-HAS_GAU=false;      command -v gau     &>/dev/null && HAS_GAU=true     && echo -e "  ${GREEN}✓${RESET} gau (optional)"
+echo -e "\n  ${GREEN}${BOLD}All tools ready.${RESET}"
 
 echo
 log "Target     : ${BOLD}$DOMAIN${RESET}"

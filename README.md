@@ -36,42 +36,25 @@ A battle-tested bug bounty recon framework focused on finding real, reportable v
 
 ## Requirements
 
-### Required
-```bash
-subfinder      # go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-assetfinder    # go install github.com/tomnomnom/assetfinder@latest
-dnsx           # go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
-httpx          # go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-katana         # go install github.com/projectdiscovery/katana/cmd/katana@latest
-curl sort awk grep md5sum wc   # standard UNIX tools
-```
+**Nothing.** Just Kali Linux (or any Debian-based system) with `curl` and `sudo`.
 
-### Optional (enhances results)
-```bash
-parallel       # apt install parallel  /  brew install parallel
-amass          # go install -v github.com/owasp-amass/amass/v4/...@master  (deep mode)
-gau            # go install github.com/lc/gau/v2/cmd/gau@latest             (deep mode)
-```
-
-### Quick install (Go tools)
-```bash
-go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
-go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-go install -v github.com/projectdiscovery/katana/cmd/katana@latest
-go install github.com/tomnomnom/assetfinder@latest
-go install github.com/lc/gau/v2/cmd/gau@latest
-```
+The script detects and auto-installs everything on first run:
+- **Go** (if not present)
+- **subfinder, assetfinder, dnsx, httpx, katana, gau** — via `go install`
+- **parallel** — via `apt`
 
 ---
 
-## Installation
+## Quick Start
 
 ```bash
 git clone https://github.com/your-handle/precise-recon
 cd precise-recon
 chmod +x precise_recon.sh
+./precise_recon.sh target.com
 ```
+
+Clone → chmod → run. First run installs all tools automatically, then begins the scan.
 
 ---
 
