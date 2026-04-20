@@ -48,7 +48,7 @@ The script detects and auto-installs everything on first run:
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-handle/precise-recon
+git clone https://github.com/thivyas111-pixel/precise-recon
 cd precise-recon
 chmod +x precise_recon.sh
 ./precise_recon.sh target.com
