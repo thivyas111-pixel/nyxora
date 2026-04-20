@@ -1,4 +1,4 @@
-# 🎯 Precise Recon v5
+# Precise Recon v5
 
 **Zero-Dependency Bug Bounty Reconnaissance Framework**
 
@@ -16,7 +16,7 @@ A powerful, production-ready reconnaissance tool that requires **ONLY** built-in
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 ```bash
 # Make executable
@@ -37,13 +37,13 @@ chmod +x precise_recon.sh
 
 ---
 
-## 🔥 Features
+## Features
 
 ### **Zero Dependencies**
-- ✅ Uses **ONLY** built-in tools: `bash`, `curl`, `awk`, `grep`, `sort`, `sed`, `tr`, `wc`, `md5sum`
-- ✅ No installation required — works out of the box on any Linux/macOS system
-- ✅ No Python, Go, or Ruby dependencies
-- ✅ Pure bash parallel processing (no GNU parallel needed)
+- Uses **ONLY** built-in tools: `bash`, `curl`, `awk`, `grep`, `sort`, `sed`, `tr`, `wc`, `md5sum`
+- No installation required — works out of the box on any Linux/macOS system
+- No Python, Go, or Ruby dependencies
+- Pure bash parallel processing (no GNU parallel needed)
 
 ### **Comprehensive Recon Pipeline**
 
@@ -80,7 +80,7 @@ chmod +x precise_recon.sh
 
 ---
 
-## 📋 Usage
+## Usage
 
 ### Basic Syntax
 ```bash
@@ -127,7 +127,7 @@ chmod +x precise_recon.sh
 
 ---
 
-## 📂 Output Structure
+## Output Structure
 
 The tool creates a timestamped directory with organized results:
 
@@ -150,15 +150,15 @@ The tool creates a timestamped directory with organized results:
 │   │   ├── dynamic.txt     # Parameters showing behavioral changes
 │   │   └── static.txt      # Stable parameters
 │   ├── behavior/
-│   │   ├── idor.txt        # 🔴 CRITICAL: IDOR candidates
-│   │   └── open_redirects.txt # 🟡 MEDIUM: Open redirect findings
+│   │   ├── idor.txt        # CRITICAL: IDOR candidates
+│   │   └── open_redirects.txt # MEDIUM: Open redirect findings
 │   └── reflection/
-│       ├── xss_candidates.txt  # 🟠 HIGH: XSS reflection points
-│       ├── sqli_candidates.txt # 🟠 HIGH: SQLi error patterns
-│       └── ssrf_candidates.txt # 🟡 MEDIUM: SSRF-prone params
+│       ├── xss_candidates.txt  # HIGH: XSS reflection points
+│       ├── sqli_candidates.txt # HIGH: SQLi error patterns
+│       └── ssrf_candidates.txt # MEDIUM: SSRF-prone params
 ├── final/
-│   ├── report.html         # 🌐 Interactive HTML dashboard
-│   └── report.txt          # 📄 Text summary report
+│   ├── report.html         # Interactive HTML dashboard
+│   └── report.txt          # Text summary report
 └── logs/
     ├── run.log             # Execution log
     └── stats.json          # Pipeline statistics
@@ -166,16 +166,16 @@ The tool creates a timestamped directory with organized results:
 
 ---
 
-## 🎨 Reports
+##  Reports
 
 ### HTML Report
 An **interactive, responsive dashboard** featuring:
-- 📊 Visual statistics and metrics
-- 🔍 Searchable, filterable tables
-- 🎯 Color-coded severity indicators
-- 📋 One-click copy functionality
-- 📱 Mobile-friendly design
-- 🌓 Clean, modern UI
+- Visual statistics and metrics
+- Searchable, filterable tables
+- Color-coded severity indicators
+- One-click copy functionality
+- Mobile-friendly design
+- Clean, modern UI
 
 **Location:** `{output-dir}/final/report.html`
 
@@ -190,7 +190,7 @@ A **concise summary** with:
 
 ---
 
-## 🔍 Detection Engines
+## Detection Engines
 
 ### 1. Diff Engine
 **Purpose:** Identify truly dynamic parameters
@@ -211,8 +211,8 @@ A **concise summary** with:
 - **Open Redirects:** Test redirect parameters with external URLs
 
 **Output:** 
-- `engine/behavior/idor.txt` (🔴 CRITICAL)
-- `engine/behavior/open_redirects.txt` (🟡 MEDIUM)
+- `engine/behavior/idor.txt` (CRITICAL)
+- `engine/behavior/open_redirects.txt` (MEDIUM)
 
 ### 3. Reflection Engine
 **Purpose:** Find injection points
@@ -223,13 +223,13 @@ A **concise summary** with:
 - **SSRF:** Identify URL/host/callback parameters
 
 **Output:**
-- `engine/reflection/xss_candidates.txt` (🟠 HIGH)
-- `engine/reflection/sqli_candidates.txt` (🟠 HIGH)
-- `engine/reflection/ssrf_candidates.txt` (🟡 MEDIUM)
+- `engine/reflection/xss_candidates.txt` (HIGH)
+- `engine/reflection/sqli_candidates.txt` (HIGH)
+- `engine/reflection/ssrf_candidates.txt` (MEDIUM)
 
 ---
 
-## 🛡️ Requirements
+## Requirements
 
 ### System Tools (Built-in)
 - `bash` (v4.0+)
@@ -245,14 +245,14 @@ A **concise summary** with:
 These are **pre-installed** on all Linux distributions and macOS.
 
 ### Operating Systems
-- ✅ Linux (all distributions)
-- ✅ macOS
-- ✅ WSL (Windows Subsystem for Linux)
-- ⚠️ Windows (requires WSL or Git Bash)
+- Linux (all distributions)
+- macOS
+- WSL (Windows Subsystem for Linux)
+- Windows (requires WSL or Git Bash)
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Performance Tuning
 
@@ -283,7 +283,7 @@ Enable `--deep` for:
 
 ---
 
-## 🎯 Workflow Integration
+## Workflow Integration
 
 ### Basic Bug Bounty Workflow
 
@@ -335,7 +335,7 @@ jobs:
 
 ---
 
-## 📊 Performance
+## Performance
 
 ### Benchmark (example.com)
 
@@ -352,18 +352,18 @@ jobs:
 
 ---
 
-## 🔐 Security & Ethics
+## Security & Ethics
 
 ### Responsible Use
 
-⚠️ **This tool is for authorized security testing only**
+**This tool is for authorized security testing only**
 
-- ✅ **DO** use on targets you have permission to test
-- ✅ **DO** respect rate limits and robots.txt
-- ✅ **DO** follow bug bounty program rules
-- ❌ **DO NOT** use on unauthorized targets
-- ❌ **DO NOT** abuse or DDoS targets
-- ❌ **DO NOT** use for illegal activities
+- **DO** use on targets you have permission to test
+- **DO** respect rate limits and robots.txt
+- **DO** follow bug bounty program rules
+- **DO NOT** use on unauthorized targets
+- **DO NOT** abuse or DDoS targets
+- **DO NOT** use for illegal activities
 
 ### Rate Limiting
 
@@ -375,7 +375,7 @@ Built-in protections:
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -413,77 +413,10 @@ chmod +x precise_recon.sh
 ```
 
 ---
-
-## 📝 Changelog
-
-### v5.0 (Current)
-- 🆕 Pure bash parallel processing (removed GNU parallel dependency)
-- 🆕 Interactive HTML dashboard
-- 🆕 Advanced diff-based detection engine
-- 🆕 Behavior engine for IDOR/redirect testing
-- 🆕 Reflection engine for XSS/SQLi/SSRF
-- 🆕 Smart URL normalization
-- 🆕 JSON statistics output
-- ✨ Enhanced crawling with depth control
-- ✨ Improved subdomain enumeration sources
-- 🔧 Better error handling and logging
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! This tool aims to maintain **zero external dependencies**.
-
-**Guidelines:**
-- Use only standard Unix tools (bash, curl, awk, grep, etc.)
-- No external language dependencies (Python, Go, Ruby, etc.)
-- Maintain compatibility with Linux and macOS
-- Follow existing code style
-- Add comments for complex logic
-- Test on multiple platforms
-
----
-
-## 📜 License
+## License
 
 This tool is provided for educational and authorized security testing purposes.
 
 **THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.**
 
 ---
-
-## 🙏 Acknowledgments
-
-**Data Sources:**
-- Certificate Transparency (crt.sh)
-- AlienVault OTX
-- HackerTarget
-- RapidDNS  
-- Wayback Machine (archive.org)
-- ThreatCrowd
-
-**Inspiration:**
-- The bug bounty community
-- Open-source reconnaissance tools
-- The philosophy of minimal dependencies
-
----
-
-## 📞 Support
-
-**Issues or Questions?**
-- Check troubleshooting section above
-- Review the inline help: `./precise_recon.sh --help`
-- Examine logs in `{output-dir}/logs/run.log`
-
----
-
-## ⭐ Star History
-
-If this tool helps you find bugs, consider giving it a star! ⭐
-
----
-
-**Built with ❤️ for the bug bounty community**
-
-*"Simplicity is the ultimate sophistication."* — Leonardo da Vinci
