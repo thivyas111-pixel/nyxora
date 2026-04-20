@@ -19,6 +19,11 @@ A powerful, production-ready reconnaissance tool that requires **ONLY** built-in
 ## Quick Start
 
 ```bash
+
+git clone https://github.com/thivyas111-pixel/precise-recon
+
+cd precise-recon
+
 # Make executable
 chmod +x precise_recon.sh
 
