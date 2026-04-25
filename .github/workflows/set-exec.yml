@@ -1,0 +1,16 @@
+name: Set executable bit
+on:
+  push:
+    paths:
+      - 'nyxora.sh'
+
+jobs:
+  chmod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: git add --chmod=+x nyxora.sh
+      - run: git config user.email "action@github.com"
+      - run: git config user.name "GitHub Action"
+      - run: git diff --cached --quiet || git commit -m "set +x on nyxora.sh"
+      - run: git push
