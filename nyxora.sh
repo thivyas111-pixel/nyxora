@@ -158,35 +158,67 @@ if [[ -n "$SCOPE_FILE" && -f "$SCOPE_FILE" ]]; then
   log "Scope filter applied"
 fi
 log "Raw subdomains: $(count_safe "$OUT/subs/raw.txt")"
+# Always include the root domain itself as a scan target
+echo "$DOMAIN" >> "$OUT/subs/raw.txt"
+sort -u "$OUT/subs/raw.txt" -o "$OUT/subs/raw.txt"
 
 # ════════════════════════════════════════════════════════════════════════════
 section "STEP 2 ─ DNS Resolution + Wildcard Pruning"
-RAND_SUB="nonexistent-nyx-$$-$(date +%s).$DOMAIN"
-WILDCARD_IP=$(curl -sk --max-time 4 --connect-timeout 3 -o /dev/null -w "%{remote_ip}" "http://$RAND_SUB" 2>/dev/null || true)
-if [[ -n "$WILDCARD_IP" && "$WILDCARD_IP" != "0.0.0.0" ]]; then
-  warn "Wildcard IP: $WILDCARD_IP — will be filtered"
-  echo "$WILDCARD_IP" > "$OUT/subs/wildcard_ips.txt"
-else
-  touch "$OUT/subs/wildcard_ips.txt"; WILDCARD_IP=""
+# Use 3 random probes to reliably detect wildcard IPs (handles Cloudflare/CDN catch-all)
+touch "$OUT/subs/wildcard_ips.txt"
+WILDCARD_IP=""
+_wc_ips=()
+for _i in 1 2 3; do
+  _rand="nonexistent-nyx${_i}-$$-$(date +%s%N | tail -c6).$DOMAIN"
+  _ip=$(curl -sk --max-time 4 --connect-timeout 3 -o /dev/null -w "%{remote_ip}" "http://$_rand" 2>/dev/null || true)
+  [[ -n "$_ip" && "$_ip" != "0.0.0.0" ]] && _wc_ips+=("$_ip")
+done
+# Only treat as wildcard if at least 2 of 3 probes returned the same IP
+if [[ ${#_wc_ips[@]} -ge 2 ]]; then
+  _sorted_wc=$(printf '%s\n' "${_wc_ips[@]}" | sort | uniq -c | sort -rn | awk '$1>=2{print $2}' | head -1)
+  if [[ -n "$_sorted_wc" ]]; then
+    WILDCARD_IP="$_sorted_wc"
+    warn "Wildcard IP confirmed (${#_wc_ips[@]}/3 probes): $WILDCARD_IP — will be filtered"
+    echo "$WILDCARD_IP" > "$OUT/subs/wildcard_ips.txt"
+  fi
 fi
+[[ -z "$WILDCARD_IP" ]] && warn "No wildcard detected — keeping all resolved subdomains"
 export TIMEOUT WILDCARD_IP
 
 _resolve_and_filter() {
   local host="$1"; local ip
   ip=$(curl -sk --max-time 4 --connect-timeout 3 -o /dev/null -w "%{remote_ip}" "http://$host" 2>/dev/null || true)
   [[ -z "$ip" || "$ip" == "0.0.0.0" ]] && return
-  [[ -n "$WILDCARD_IP" && "$ip" == "$WILDCARD_IP" ]] && return
+  # Only filter if wildcard IP is set AND the response body is also identical (avoids over-filtering CDN hosts)
+  if [[ -n "$WILDCARD_IP" && "$ip" == "$WILDCARD_IP" ]]; then
+    # Extra check: fetch body and compare to a random-sub body to confirm it's truly wildcard
+    local real_body rand_body wc_rand
+    wc_rand="nyx-verify-$$.$DOMAIN"
+    real_body=$(curl -sk --max-time 4 --connect-timeout 3 "http://$host" 2>/dev/null | wc -c)
+    rand_body=$(curl -sk --max-time 4 --connect-timeout 3 "http://$wc_rand" 2>/dev/null | wc -c)
+    # If sizes differ by >500 bytes, it's likely a real host, keep it
+    local diff_size=$(( real_body > rand_body ? real_body - rand_body : rand_body - real_body ))
+    [[ "$diff_size" -lt 500 ]] && return
+  fi
   echo "$host $ip"
 }
 export -f _resolve_and_filter
 
 cat "$OUT/subs/raw.txt" | _parallel "$THREADS" _resolve_and_filter 2>/dev/null | sort -u > "$OUT/subs/resolved_raw.txt"
+
+# Secondary pass: flag IPs shared by >8 hosts as likely CDN wildcards
 awk '{print $2}' "$OUT/subs/resolved_raw.txt" | sort | uniq -c | sort -rn | awk '$1 > 8 {print $2}' >> "$OUT/subs/wildcard_ips.txt"
 sort -u "$OUT/subs/wildcard_ips.txt" -o "$OUT/subs/wildcard_ips.txt"
 
 if [[ -s "$OUT/subs/wildcard_ips.txt" ]] && grep -qE '^[0-9]' "$OUT/subs/wildcard_ips.txt" 2>/dev/null; then
   grep -vFf <(grep -E '^[0-9]' "$OUT/subs/wildcard_ips.txt") "$OUT/subs/resolved_raw.txt" | awk '{print $1}' | sort -u > "$OUT/subs/resolved.txt"
 else
+  awk '{print $1}' "$OUT/subs/resolved_raw.txt" | sort -u > "$OUT/subs/resolved.txt"
+fi
+
+# Safety net: if wildcard pruning wiped everything, fall back to all resolved hosts
+if [[ ! -s "$OUT/subs/resolved.txt" && -s "$OUT/subs/resolved_raw.txt" ]]; then
+  warn "Wildcard pruning removed all hosts — falling back to full resolved list (CDN detected)"
   awk '{print $1}' "$OUT/subs/resolved_raw.txt" | sort -u > "$OUT/subs/resolved.txt"
 fi
 log "Resolved (wildcard-filtered): $(count_safe "$OUT/subs/resolved.txt")"
@@ -230,8 +262,35 @@ export -f _http_probe
 
 cat "$OUT/subs/resolved.txt" | _parallel "$THREADS" _http_probe 2>/dev/null | sort -u > "$OUT/http/probe_full.txt"
 [[ -f /tmp/nyx_live_$$ ]] && sort -u /tmp/nyx_live_$$ > "$OUT/http/live.txt"; rm -f /tmp/nyx_live_$$
+
+# Fallback: if no live hosts found but we have resolved subs, probe them directly without size filter
+if [[ ! -s "$OUT/http/live.txt" && -s "$OUT/subs/resolved.txt" ]]; then
+  warn "No live hosts with standard probe — trying relaxed probe (no size filter)..."
+  _http_probe_relaxed() {
+    local host="$1"
+    for scheme in https http; do
+      local url="${scheme}://${host}"
+      local status
+      status=$(curl -sk --max-time "$TIMEOUT" --connect-timeout 4 -o /dev/null -w "%{http_code}" \
+        -H "User-Agent: Mozilla/5.0" "$url" 2>/dev/null) || continue
+      [[ -z "$status" || "$status" == "000" ]] && continue
+      echo "$status" | grep -qE '^[2345]' || continue
+      echo "$url" >> /tmp/nyx_live_relaxed_$$
+      echo "$url [$status]"
+      return
+    done
+  }
+  export -f _http_probe_relaxed
+  cat "$OUT/subs/resolved.txt" | _parallel "$THREADS" _http_probe_relaxed 2>/dev/null | sort -u > "$OUT/http/probe_full.txt"
+  [[ -f /tmp/nyx_live_relaxed_$$ ]] && sort -u /tmp/nyx_live_relaxed_$$ > "$OUT/http/live.txt"
+  rm -f /tmp/nyx_live_relaxed_$$
+fi
+
 log "Live hosts: $(count_safe "$OUT/http/live.txt")"
-[[ ! -s "$OUT/http/live.txt" ]] && die "No live hosts found."
+if [[ ! -s "$OUT/http/live.txt" ]]; then
+  warn "No live hosts found — continuing scan to generate report with recon data collected so far."
+  touch "$OUT/http/live.txt"
+fi
 
 # ════════════════════════════════════════════════════════════════════════════
 section "STEP 4 ─ Security Header Audit [NEW v6]"
