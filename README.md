@@ -103,7 +103,7 @@ It uses only the tools already on your system — `bash`, `curl`, `awk`, `grep` 
 
 ## What It Actually Does
 
-When you run `./nyxora.sh target.com`, here is exactly what happens:
+When you run `bash nyxora.sh target.com`, here is exactly what happens:
 
 **Step 1 — Subdomain Enumeration**
 Nyxora queries 6+ passive sources (crt.sh, AlienVault OTX, HackerTarget, RapidDNS, Wayback Machine, ThreatCrowd) and resolves which subdomains actually exist. Wildcard IPs are auto-detected and filtered so you don't chase phantom hosts.
@@ -279,29 +279,29 @@ Phase 3 — Authenticated manual testing on surfaced endpoints
 
 ## Quick Start
 
-The script is pre-configured as an executable in the repository. No `chmod` needed after cloning — just run it.
+Run using bash (no chmod required in most cases)
 
 ```bash
 git clone https://github.com/thivyas111-pixel/nyxora
+
 cd nyxora
 
-# Run immediately — no chmod required
-./nyxora.sh target.com
+bash nyxora.sh target.com
 
 # Deep scan (more sources, crawl depth 3)
-./nyxora.sh target.com --deep
+bash nyxora.sh target.com --deep
 
 # With OOB SSRF probe (Burp Collaborator, interactsh, etc.)
-./nyxora.sh target.com --oob your.interactsh.url
+bash nyxora.sh target.com --oob your.interactsh.url
 
 # Restrict to in-scope hosts
-./nyxora.sh target.com --scope-file scope.txt
+bash nyxora.sh target.com --scope-file scope.txt
 
 # Custom threads and timeout
-./nyxora.sh target.com --threads 30 --timeout 8
+bash nyxora.sh target.com --threads 30 --timeout 8
 
 # Save to custom output directory
-./nyxora.sh target.com --out ~/bounty/target
+bash nyxora.sh target.com --out ~/bounty/target
 ```
 
 > **Note for contributors:** If you re-download the raw file manually instead of cloning, run `chmod +x nyxora.sh` once before use. The executable bit is stored in git and preserved for all cloners automatically.
@@ -467,13 +467,13 @@ Fetches each resolved subdomain and checks for 8 service-specific body signature
 
 ```bash
 # Balanced (default)
-./nyxora.sh target.com --threads 20 --timeout 6
+bash nyxora.sh target.com --threads 20 --timeout 6
 
 # Fast — high-resource environment
-./nyxora.sh target.com --threads 50 --timeout 5
+bash nyxora.sh target.com --threads 50 --timeout 5
 
 # Stealth — low footprint
-./nyxora.sh target.com --threads 5 --timeout 15
+bash nyxora.sh target.com --threads 5 --timeout 15
 ```
 
 ---
@@ -484,7 +484,7 @@ Fetches each resolved subdomain and checks for 8 service-specific body signature
 
 ```bash
 # 1. Run recon
-./nyxora.sh target.com --deep
+bash nyxora.sh target.com --deep
 
 # 2. Review the HTML report
 open ~/nyxora-target.com-*/final/report.html
@@ -506,33 +506,6 @@ cat ~/nyxora-target.com-*/crawl/urls_with_params.txt | ffuf -w - ...
 cat ~/nyxora-target.com-*/subs/resolved.txt | ...
 ```
 
-### CI/CD Integration
-
-```yaml
-# .github/workflows/nyxora.yml
-name: Scheduled Recon
-on:
-  schedule:
-    - cron: '0 2 * * 0'   # Weekly, Sunday 2 AM
-
-jobs:
-  recon:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Run Nyxora
-        run: |
-          chmod +x nyxora.sh   # GitHub Actions runners need this even with git executable bit
-          ./nyxora.sh ${{ secrets.TARGET_DOMAIN }} --no-report --scope-file scope.txt
-
-      - name: Upload Results
-        uses: actions/upload-artifact@v3
-        with:
-          name: nyxora-results-${{ github.run_number }}
-          path: ~/nyxora-*/
-```
-
 ---
 
 ## Requirements
@@ -551,29 +524,30 @@ Nyxora runs a dependency check on startup and reports any missing tool before do
 
 **Permission denied** *(only if you downloaded the raw file manually, not via git clone)*
 ```bash
-chmod +x nyxora.sh
+chmod +x nyxora.sh 
+bash nyxora.sh target.com
 ```
 
 **No subdomains found**
 ```bash
-./nyxora.sh target.com --deep
+bash nyxora.sh target.com --deep
 ```
 
 **Timeout errors on slow targets**
 ```bash
-./nyxora.sh target.com --timeout 15 --threads 10
+bash nyxora.sh target.com --timeout 15 --threads 10
 ```
 
 **Restrict to in-scope hosts only**
 ```bash
 echo "api.target.com" > scope.txt
 echo "app.target.com" >> scope.txt
-./nyxora.sh target.com --scope-file scope.txt
+bash nyxora.sh target.com --scope-file scope.txt
 ```
 
 **Confirm SSRF findings with OOB**
 ```bash
-./nyxora.sh target.com --oob your.interactsh.url
+bash nyxora.sh target.com --oob your.interactsh.url
 ```
 
 ---
