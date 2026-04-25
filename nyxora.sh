@@ -99,7 +99,7 @@ _parallel() {
   local n="$1"; shift; local fn="$1"; shift; local extra_args=("$@")
   local jobs=0; local -a pids=()
   while IFS= read -r line; do
-    "$fn" "$line" "${extra_args[@]}" &; pids+=($!); jobs=$(( jobs + 1 ))
+    "$fn" "$line" "${extra_args[@]}" & pids+=($!); jobs=$(( jobs + 1 ))
     if (( jobs >= n )); then wait "${pids[0]}" 2>/dev/null || true; pids=("${pids[@]:1}"); jobs=$(( jobs - 1 )); fi
   done
   for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
