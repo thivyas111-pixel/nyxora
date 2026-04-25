@@ -6,6 +6,64 @@
 
 ---
 
+## Overview
+
+Nyxora is an **unauthenticated, external reconnaissance and vulnerability discovery framework** written entirely in bash. It requires no credentials, no session cookies, and no target-side access — it operates purely from the outside, the same way an attacker on the internet would.
+
+It is designed as your **first pass before manual testing** — not a replacement for it.
+
+### What kind of scan does it run?
+
+| Property | Value |
+|---|---|
+| Authentication | None — fully unauthenticated |
+| Perspective | External attacker (black-box) |
+| Protocol | HTTP / HTTPS only |
+| Interaction | Passive recon + active probing |
+| Credentials sent | None |
+| Target-side agent | None required |
+
+### What Nyxora does
+
+It maps the external attack surface of a domain end-to-end: discovering subdomains, fingerprinting live hosts, crawling URLs, extracting parameters, and then running automated detection passes against that surface. It is not a fuzzer and not a full scanner — it is a precision recon tool with lightweight detection logic layered on top.
+
+In a single run it covers what normally takes several separate tools chained together: subdomain enumeration, HTTP probing, JS secret scanning, security header auditing, subdomain takeover fingerprinting, URL crawling, parameter normalization, and detection passes for IDOR, XSS, SQLi, open redirects, SSRF, and CORS misconfigurations — all with confidence scoring so you know what to look at first.
+
+### What it finds (unauthenticated surface only)
+
+- Exposed subdomains and dangling DNS records
+- Publicly accessible endpoints with injectable parameters
+- Reflected XSS in unauthenticated pages
+- SQL error leakage on unauthenticated endpoints
+- Open redirects on login/return URL parameters
+- SSRF-prone parameters reachable without authentication
+- CORS misconfigurations on public APIs
+- Missing security headers on all live hosts
+- Hardcoded secrets in publicly served JavaScript files
+- Subdomain takeover candidates (unclaimed infrastructure)
+
+### What it will not find
+
+- Vulnerabilities that only appear after login (authenticated IDOR, privilege escalation, account takeover flows)
+- Business logic flaws that require understanding of application state
+- Stored XSS or CSRF (require a session)
+- Vulnerabilities behind WAFs that block unauthenticated traffic
+- Any issue that requires chaining multiple authenticated actions
+
+### Where it fits in your workflow
+
+```
+Nyxora  →  unauthenticated recon + surface mapping + quick wins
+   ↓
+Manual authenticated testing on surfaced endpoints
+   ↓
+Deep business logic and chained vulnerability review
+```
+
+Run Nyxora first. Let it map the surface, grab low-hanging fruit (exposed secrets, takeovers, unauthenticated reflections), and produce a prioritized shortlist. Then log in and do the work Nyxora cannot.
+
+---
+
 ## Why Nyxora Exists
 
 Most recon tools have a problem: they bury you in data without helping you find bugs.
@@ -132,6 +190,76 @@ Results are written to structured output files with confidence labels. An intera
 
 ---
 
+## Best Targets & When to Use Nyxora
+
+### Where Nyxora performs best
+
+**Web applications with a broad external surface**
+Large apps with many subdomains, multiple API endpoints, and JavaScript-heavy frontends give Nyxora the most to work with. More surface = more parameters = more detection opportunities.
+
+**Bug bounty programs with wide scope**
+Programs that allow `*.target.com` or list dozens of in-scope domains are ideal. Nyxora is built to handle breadth — run it across the full scope and let it surface the endpoints worth investigating manually.
+
+**API-heavy targets**
+Applications that expose REST or GraphQL APIs publicly (no auth required to reach the endpoints) are strong candidates. Nyxora tracks JSON API endpoints separately and runs all detection passes against them.
+
+**Targets with known tech debt**
+Older applications, acquired subsidiaries, legacy subdomains, and staging/dev environments tend to have weak headers, exposed secrets, dangling CNAMEs, and misconfigured CORS — exactly what Nyxora is built to catch.
+
+**Targets running on cloud infrastructure**
+AWS, GCP, and Azure deployments are fingerprinted automatically. Subdomain takeover via unclaimed S3 buckets, Heroku dynos, or Azure slots is one of Nyxora's most consistent high-value findings.
+
+---
+
+### Where bug hunters should use it
+
+| Scenario | Use Nyxora? | Why |
+|---|---|---|
+| Starting recon on a new target | ✅ Yes | Full surface map in one run |
+| Wide-scope `*.domain.com` programs | ✅ Yes | Built for breadth, handles many subdomains |
+| Public APIs with no login required | ✅ Yes | Parameter detection runs without auth |
+| Programs with VDP or new acquisitions | ✅ Yes | Legacy infra tends to have low-hanging fruit |
+| Scheduled monitoring of known targets | ✅ Yes | CI/CD integration catches new exposure over time |
+| Narrow single-page app with no subdomains | ⚠️ Limited | Less surface to enumerate, fewer parameters |
+| Targets fully behind login walls | ⚠️ Limited | Only the pre-auth surface is visible |
+| Mobile API backends (no web frontend) | ⚠️ Limited | No JS files or HTML to crawl |
+| Internal / private network targets | ❌ No | Requires network access; Nyxora runs externally |
+
+---
+
+### Program types where Nyxora consistently finds bugs
+
+**VDP (Vulnerability Disclosure Programs)**
+Often have older, unmaintained infrastructure. JS secret exposure, subdomain takeover, and missing security headers are common findings that VDPs accept readily.
+
+**Tech company programs with acquired domains**
+Acquisitions often inherit poorly maintained subdomains, expired cloud resources, and hardcoded credentials in legacy JS bundles.
+
+**Financial and fintech programs**
+Tend to expose REST APIs publicly for partner integrations. CORS misconfigurations and SSRF on webhook/callback parameters are high-frequency findings.
+
+**SaaS platforms with multi-tenant architecture**
+IDOR candidates surface frequently on platforms where resources are referenced by numeric or sequential IDs in URL parameters.
+
+---
+
+### Best practice: pair Nyxora with manual testing
+
+Nyxora is your first pass. It maps the surface, grabs quick wins, and hands you a prioritized list. Manual authenticated testing on the endpoints it surfaces is where the deeper bugs live.
+
+```
+Phase 1 — Nyxora (unauthenticated, ~5–12 min)
+  → Subdomains, live hosts, parameters, quick vulnerability checks
+
+Phase 2 — Manual review of Nyxora output (~30–60 min)
+  → Validate findings, investigate IDOR/XSS/SQLi candidates
+
+Phase 3 — Authenticated manual testing on surfaced endpoints
+  → Business logic, auth bypass, chained vulnerabilities
+```
+
+---
+
 ## Who This Tool Is For
 
 - **Bug bounty hunters** who want faster triage with fewer false positives
@@ -144,12 +272,13 @@ Results are written to structured output files with confidence labels. An intera
 
 ## Quick Start
 
+The script is pre-configured as an executable in the repository. No `chmod` needed after cloning — just run it.
+
 ```bash
 git clone https://github.com/thivyas111-pixel/nyxora
 cd nyxora
-chmod +x nyxora.sh
 
-# Standard scan
+# Run immediately — no chmod required
 ./nyxora.sh target.com
 
 # Deep scan (more sources, crawl depth 3)
@@ -167,6 +296,8 @@ chmod +x nyxora.sh
 # Save to custom output directory
 ./nyxora.sh target.com --out ~/bounty/target
 ```
+
+> **Note for contributors:** If you re-download the raw file manually instead of cloning, run `chmod +x nyxora.sh` once before use. The executable bit is stored in git and preserved for all cloners automatically.
 
 ---
 
@@ -385,7 +516,7 @@ jobs:
 
       - name: Run Nyxora
         run: |
-          chmod +x nyxora.sh
+          chmod +x nyxora.sh   # GitHub Actions runners need this even with git executable bit
           ./nyxora.sh ${{ secrets.TARGET_DOMAIN }} --no-report --scope-file scope.txt
 
       - name: Upload Results
@@ -411,7 +542,7 @@ Nyxora runs a dependency check on startup and reports any missing tool before do
 
 ## Troubleshooting
 
-**Permission denied**
+**Permission denied** *(only if you downloaded the raw file manually, not via git clone)*
 ```bash
 chmod +x nyxora.sh
 ```

@@ -1,6 +1,5 @@
-# Recon output directories
-recon-*/
-~/recon-*/
+# Nyxora scan output directories
+nyxora-*/
 
 # Editor
 .vscode/
