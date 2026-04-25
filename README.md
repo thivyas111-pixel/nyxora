@@ -29,26 +29,33 @@ It maps the external attack surface of a domain end-to-end: discovering subdomai
 
 In a single run it covers what normally takes several separate tools chained together: subdomain enumeration, HTTP probing, JS secret scanning, security header auditing, subdomain takeover fingerprinting, URL crawling, parameter normalization, and detection passes for IDOR, XSS, SQLi, open redirects, SSRF, and CORS misconfigurations — all with confidence scoring so you know what to look at first.
 
-### What it finds (unauthenticated surface only)
+### What it finds
+
+Nyxora operates on the **publicly reachable surface** — everything accessible without credentials. These vulnerability classes exist on both authenticated and unauthenticated surfaces; Nyxora catches them specifically on endpoints it can reach without logging in:
 
 - Exposed subdomains and dangling DNS records
-- Publicly accessible endpoints with injectable parameters
-- Reflected XSS in unauthenticated pages
-- SQL error leakage on unauthenticated endpoints
-- Open redirects on login/return URL parameters
-- SSRF-prone parameters reachable without authentication
-- CORS misconfigurations on public APIs
-- Missing security headers on all live hosts
+- Reflected XSS on public pages (search, login forms, error pages, contact forms)
+- SQL error leakage on public endpoints (login forms, search boxes, listing pages)
+- IDOR on public APIs that expose resources by ID without requiring a session
+- Open redirects on pre-auth parameters (`?next=`, `?return=`, `?redirect_uri=`)
+- SSRF on publicly accessible URL/webhook/callback parameters
+- CORS misconfigurations on public APIs (origin reflection, wildcard + credentials)
+- Missing security headers across all live hosts
 - Hardcoded secrets in publicly served JavaScript files
-- Subdomain takeover candidates (unclaimed infrastructure)
+- Subdomain takeover candidates (unclaimed cloud infrastructure)
 
 ### What it will not find
 
-- Vulnerabilities that only appear after login (authenticated IDOR, privilege escalation, account takeover flows)
-- Business logic flaws that require understanding of application state
-- Stored XSS or CSRF (require a session)
-- Vulnerabilities behind WAFs that block unauthenticated traffic
-- Any issue that requires chaining multiple authenticated actions
+The limitation is not the vulnerability type — it is **reachability**. If an endpoint requires a valid session to respond, Nyxora never sees it, regardless of what vulnerability lives behind it.
+
+- Any endpoint that returns 401/403 to unauthenticated requests — Nyxora moves on
+- Authenticated IDOR (accessing another user's resources after login)
+- Stored XSS (requires a session to submit the payload and trigger it)
+- CSRF (requires an active session to be exploitable)
+- Privilege escalation and account takeover flows
+- Business logic flaws that depend on application state
+- Vulnerabilities exclusively behind WAF rules that block anonymous traffic
+- Chained vulnerabilities that require multiple authenticated steps
 
 ### Where it fits in your workflow
 
