@@ -1,584 +1,256 @@
-# Nyxora
+<div align="center">
 
-**Zero-Dependency Bug Bounty Reconnaissance Framework**
+```
+  ███╗   ██╗██╗   ██╗██╗  ██╗ ██████╗ ██████╗  █████╗
+  ████╗  ██║╚██╗ ██╔╝╚██╗██╔╝██╔═══██╗██╔══██╗██╔══██╗
+  ██╔██╗ ██║ ╚████╔╝  ╚███╔╝ ██║   ██║██████╔╝███████║
+  ██║╚██╗██║  ╚██╔╝   ██╔██╗ ██║   ██║██╔══██╗██╔══██║
+  ██║ ╚████║   ██║   ██╔╝ ██╗╚██████╔╝██║  ██║██║  ██║
+  ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+```
 
-> Pure bash. No installs. No noise. Just findings.
+**v3.1 · Zero-Dependency Bug Bounty Recon Framework**
+
+[![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
+[![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-blue)](#requirements)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-3.1.0-red)](https://github.com/thivyas111-pixel/nyxora)
+
+*curl · bash · awk · grep — nothing to install.*
+
+</div>
 
 ---
 
 ## Overview
 
-Nyxora is an **unauthenticated, external reconnaissance and vulnerability discovery framework** written entirely in bash. It requires no credentials, no session cookies, and no target-side access — it operates purely from the outside, the same way an attacker on the internet would.
+**Nyxora** is a fully self-contained bug bounty recon framework written in pure Bash. It performs comprehensive reconnaissance on a target domain — from subdomain discovery through active vulnerability scanning — using only tools that ship with every standard Linux system. No Python, no Go binaries, no pip packages: just `curl`, `bash`, `awk`, `grep`, `sort`, `sed`, `tr`, `wc`, and `md5sum`.
 
-It is designed as your **first pass before manual testing** — not a replacement for it.
+v3.1 adds **authenticated scanning** via `--cookie` and `--header` flags, meaning every probe function now carries your session credentials — unlocking targets behind login walls. It also tightens XSS detection with a second-request confirmation probe and HTML comment context gate to cut false positives.
 
-### What kind of scan does it run?
+---
 
-| Property | Value |
-|---|---|
-| Authentication | None — fully unauthenticated |
-| Perspective | External attacker (black-box) |
-| Protocol | HTTP / HTTPS only |
-| Interaction | Passive recon + active probing |
-| Credentials sent | None |
-| Target-side agent | None required |
+## Installation
 
-### What Nyxora does
-
-It maps the external attack surface of a domain end-to-end: discovering subdomains, fingerprinting live hosts, crawling URLs, extracting parameters, and then running automated detection passes against that surface. It is not a fuzzer and not a full scanner — it is a precision recon tool with lightweight detection logic layered on top.
-
-In a single run it covers what normally takes several separate tools chained together: subdomain enumeration, HTTP probing, JS secret scanning, security header auditing, subdomain takeover fingerprinting, URL crawling, parameter normalization, and detection passes for IDOR, XSS, SQLi, open redirects, SSRF, and CORS misconfigurations — all with confidence scoring so you know what to look at first.
-
-### What it finds
-
-Nyxora operates on the **publicly reachable surface** — everything accessible without credentials. These vulnerability classes exist on both authenticated and unauthenticated surfaces; Nyxora catches them specifically on endpoints it can reach without logging in:
-
-- Exposed subdomains and dangling DNS records
-- Reflected XSS on public pages (search, login forms, error pages, contact forms)
-- SQL error leakage on public endpoints (login forms, search boxes, listing pages)
-- IDOR on public APIs that expose resources by ID without requiring a session
-- Open redirects on pre-auth parameters (`?next=`, `?return=`, `?redirect_uri=`)
-- SSRF on publicly accessible URL/webhook/callback parameters
-- CORS misconfigurations on public APIs (origin reflection, wildcard + credentials)
-- Missing security headers across all live hosts
-- Hardcoded secrets in publicly served JavaScript files
-- Subdomain takeover candidates (unclaimed cloud infrastructure)
-
-### What it will not find
-
-The limitation is not the vulnerability type — it is **reachability**. If an endpoint requires a valid session to respond, Nyxora never sees it, regardless of what vulnerability lives behind it.
-
-- Any endpoint that returns 401/403 to unauthenticated requests — Nyxora moves on
-- Authenticated IDOR (accessing another user's resources after login)
-- Stored XSS (requires a session to submit the payload and trigger it)
-- CSRF (requires an active session to be exploitable)
-- Privilege escalation and account takeover flows
-- Business logic flaws that depend on application state
-- Vulnerabilities exclusively behind WAF rules that block anonymous traffic
-- Chained vulnerabilities that require multiple authenticated steps
-
-### Where it fits in your workflow
-
-```
-Nyxora  →  unauthenticated recon + surface mapping + quick wins
-   ↓
-Manual authenticated testing on surfaced endpoints
-   ↓
-Deep business logic and chained vulnerability review
+```bash
+git clone https://github.com/thivyas111-pixel/nyxora.git
+cd nyxora
 ```
 
-Run Nyxora first. Let it map the surface, grab low-hanging fruit (exposed secrets, takeovers, unauthenticated reflections), and produce a prioritized shortlist. Then log in and do the work Nyxora cannot.
+No `chmod`, no build step. Run directly with bash:
 
----
-
-## Why Nyxora Exists
-
-Most recon tools have a problem: they bury you in data without helping you find bugs.
-
-You run a tool, get 10,000 URLs, 300 subdomains, and a pile of raw output — then you're left doing the actual work yourself: filtering, triaging, and manually testing every endpoint hoping something is exploitable.
-
-On top of that, modern recon stacks require Go, Python, Docker, 15 different binaries, version conflicts, and a 30-minute setup ritual before you even scan a single domain.
-
-**Nyxora was built to solve both problems.**
-
-It uses only the tools already on your system — `bash`, `curl`, `awk`, `grep` — zero installs, zero configuration. And instead of dumping raw recon data on you, it runs automated detection logic to surface real vulnerability candidates: IDOR, XSS, SQLi, SSRF, open redirects, CORS misconfigurations, JS secrets, and subdomain takeovers — with confidence scoring, so you know exactly where to spend your time.
-
-**Signal over noise. Real bugs over raw data. Minimal setup, maximum output.**
-
----
-
-## What Makes Nyxora Different
-
-| Other Tools | Nyxora |
-|---|---|
-| Require Go, Python, Docker | Pure bash — works on any Linux/macOS out of the box |
-| Dump thousands of raw URLs | Smart normalization and pattern-based deduplication |
-| No vulnerability logic | Active detection: IDOR, XSS, SQLi, SSRF, secrets, takeover |
-| Binary yes/no findings | Confidence scoring: HIGH / MEDIUM / LOW on every finding |
-| Silent false positives | Baseline comparison + encoding validation before flagging |
-| Scope drift | `--scope-file` flag restricts scanning to in-scope hosts only |
-| Generic text dumps | Structured HTML dashboard, Markdown report, and JSON stats |
-
----
-
-## What It Actually Does
-
-When you run `bash nyxora.sh target.com`, here is exactly what happens:
-
-**Step 1 — Subdomain Enumeration**
-Nyxora queries 6+ passive sources (crt.sh, AlienVault OTX, HackerTarget, RapidDNS, Wayback Machine, ThreatCrowd) and resolves which subdomains actually exist. Wildcard IPs are auto-detected and filtered so you don't chase phantom hosts.
-
-**Step 2 — DNS Resolution & Wildcard Pruning**
-Each discovered subdomain is resolved via HTTP and compared against the wildcard IP fingerprint. Only genuinely distinct, live hosts proceed to the next stage.
-
-**Step 3 — HTTP Probing**
-Live hosts are identified in parallel. Status codes, page titles, server headers, and tech stack are fingerprinted — including Apache, Nginx, IIS, WordPress, Drupal, Cloudflare, AWS, GCP, and Azure.
-
-**Step 4 — Security Header Audit**
-Every live host is tested for CORS misconfigurations (wildcard, origin reflection, credential leaks) and missing security headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy). Cookie flags (Secure, HttpOnly, SameSite) are also checked.
-
-**Step 5 — JS Secret Scanner**
-JavaScript files are fetched and scanned for 12 secret patterns: AWS keys, Google API keys, Slack tokens, GitHub tokens, Stripe keys, Twilio SIDs, bearer tokens, private keys, Firebase configs, Heroku API keys, SendGrid keys, and Mailchimp credentials.
-
-**Step 6 — Subdomain Takeover Fingerprinting**
-All resolved subdomains are checked against known takeover signatures for Heroku, GitHub Pages, Azure, Fastly, Shopify, Bitbucket, Tumblr, and AWS S3.
-
-**Step 7 — URL Discovery & Crawling**
-Historical URLs from the Wayback Machine are pulled. Live pages are crawled for endpoints (configurable depth 1–3). JavaScript files are parsed for hidden API routes. All static assets are filtered out.
-
-**Step 8 — Parameter Normalization**
-Duplicate URL patterns are collapsed with `FUZZ` placeholders. Noise parameters (pagination, analytics, tracking, session tokens) are filtered. You test one URL per behavioral pattern, not a thousand near-identical ones.
-
-**Step 9 — Baseline Validation**
-Each normalized URL is probed to confirm it returns a live 200 response with real content. Image, video, and audio responses are dropped. JSON API endpoints are tracked in a separate file.
-
-**Step 10 — Diff Engine**
-Three distinct mutation probes are sent per URL and compared by MD5 hash and response size. Parameters where all three mutations produce different, non-trivial responses are flagged as genuinely dynamic.
-
-**Step 11 — IDOR Detection**
-Dynamic parameters are tested with ID swaps (1, 2, 100, 9999999). Parameters whose responses diverge in size and content are flagged. ID parameter name heuristics (`user_id`, `account`, `order_id`, etc.) boost confidence to HIGH automatically.
-
-**Step 12 — XSS Reflection Detection**
-A unique canary value is injected and the response checked for unencoded reflection in an HTML context. Entity-encoded reflections are discarded. X-XSS-Protection blocking headers are respected. Reflection context (html / attr / script) is recorded.
-
-**Step 13 — Open Redirect Detection**
-Only parameters matching known redirect patterns (`redirect=`, `next=`, `url=`, `goto=`, etc.) are tested. An external marker URL is injected and curl's effective URL is checked for follow-through.
-
-**Step 14 — SQLi Error Heuristic**
-A safe baseline request is sent first. If the baseline response already contains SQL error strings, the URL is skipped entirely. Injection payloads are then sent and compared against 14 database error patterns across MySQL, PostgreSQL, Oracle, SQLite, MSSQL, and Java JDBC.
-
-**Step 15 — SSRF Detection**
-Parameters matching known SSRF patterns (`url=`, `host=`, `fetch=`, `webhook=`, `callback=`, etc.) are collected. An optional `--oob` flag sends active OOB probes to a Burp Collaborator or interactsh URL.
-
-**Reporting**
-Results are written to structured output files with confidence labels. An interactive HTML dashboard, a Markdown summary, a plain-text report, and a JSON stats file are generated automatically.
-
-**Total runtime:** 4–12 minutes depending on target size and scan mode.
-
----
-
-## Features
-
-### Recon
-- Passive subdomain enumeration from 6 sources (9 in deep mode)
-- DNS resolution with automatic wildcard IP pruning
-- Parallel HTTP/HTTPS probing with status, title, size, and tech fingerprinting
-- Tech detection: Apache, Nginx, IIS, PHP, ASP.NET, WordPress, Drupal, Cloudflare, AWS, GCP, Azure
-- Wayback Machine historical URL extraction (up to 5,000 URLs)
-- On-site crawling with configurable depth (2 standard, 3 deep mode)
-- JavaScript endpoint extraction and API route discovery
-- JSON API endpoint tracking in a dedicated output file
-- Scope restriction via `--scope-file`
-
-### Analysis
-- Parameter normalization with noise filtering (analytics, pagination, session tokens)
-- Pattern-based URL deduplication — one test per behavioral variant
-- Baseline validation gate — only 200-responding, content-rich URLs proceed
-- 3-probe diff engine for dynamic parameter identification
-
-### Vulnerability Detection
-- **IDOR** — ID swapping with response size and hash comparison; name heuristic boosts to HIGH
-- **XSS** — Canary injection with HTML context detection and encoding validation gate
-- **SQLi** — 5 payloads against 14 database error patterns; baseline comparison prevents FPs
-- **SSRF** — URL/host/callback parameter identification; optional OOB active probe (`--oob`)
-- **Open Redirects** — Pattern-matched parameters only; marker URL follow-through confirmation
-- **CORS** — Origin reflection, wildcard, and credential leak detection
-- **Security Headers** — CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, cookie flags
-- **JS Secrets** — 12 pattern types: AWS, Google, Slack, GitHub, Stripe, Twilio, Bearer, Private Key, Firebase, Heroku, SendGrid, Mailchimp
-- **Subdomain Takeover** — 8 service signatures: Heroku, GitHub Pages, Azure, Fastly, Shopify, Bitbucket, Tumblr, AWS S3
-- **Confidence Scoring** — Every finding rated HIGH / MEDIUM / LOW based on evidence strength
-
-### Reporting
-- Interactive HTML dashboard (searchable, filterable, paginated, color-coded by severity)
-- Markdown report (GitHub-ready, auto-generated per scan)
-- Plain-text summary with severity grouping
-- JSON stats file for CI/CD pipeline integration
-- Structured, predictable output directory for easy scripting
-
----
-
-## Best Targets & When to Use Nyxora
-
-### Where Nyxora performs best
-
-**Web applications with a broad external surface**
-Large apps with many subdomains, multiple API endpoints, and JavaScript-heavy frontends give Nyxora the most to work with. More surface = more parameters = more detection opportunities.
-
-**Bug bounty programs with wide scope**
-Programs that allow `*.target.com` or list dozens of in-scope domains are ideal. Nyxora is built to handle breadth — run it across the full scope and let it surface the endpoints worth investigating manually.
-
-**API-heavy targets**
-Applications that expose REST or GraphQL APIs publicly (no auth required to reach the endpoints) are strong candidates. Nyxora tracks JSON API endpoints separately and runs all detection passes against them.
-
-**Targets with known tech debt**
-Older applications, acquired subsidiaries, legacy subdomains, and staging/dev environments tend to have weak headers, exposed secrets, dangling CNAMEs, and misconfigured CORS — exactly what Nyxora is built to catch.
-
-**Targets running on cloud infrastructure**
-AWS, GCP, and Azure deployments are fingerprinted automatically. Subdomain takeover via unclaimed S3 buckets, Heroku dynos, or Azure slots is one of Nyxora's most consistent high-value findings.
-
----
-
-### Where bug hunters should use it
-
-| Scenario | Use Nyxora? | Why |
-|---|---|---|
-| Starting recon on a new target | Yes | Full surface map in one run |
-| Wide-scope `*.domain.com` programs | Yes | Built for breadth, handles many subdomains |
-| Public APIs with no login required | Yes | Parameter detection runs without auth |
-| Programs with VDP or new acquisitions | Yes | Legacy infra tends to have low-hanging fruit |
-| Scheduled monitoring of known targets | Yes | CI/CD integration catches new exposure over time |
-| Narrow single-page app with no subdomains | Limited | Less surface to enumerate, fewer parameters |
-| Targets fully behind login walls | Limited | Only the pre-auth surface is visible |
-| Mobile API backends (no web frontend) | Limited | No JS files or HTML to crawl |
-| Internal / private network targets | No | Requires network access; Nyxora runs externally |
-
----
-
-### Program types where Nyxora consistently finds bugs
-
-**VDP (Vulnerability Disclosure Programs)**
-Often have older, unmaintained infrastructure. JS secret exposure, subdomain takeover, and missing security headers are common findings that VDPs accept readily.
-
-**Tech company programs with acquired domains**
-Acquisitions often inherit poorly maintained subdomains, expired cloud resources, and hardcoded credentials in legacy JS bundles.
-
-**Financial and fintech programs**
-Tend to expose REST APIs publicly for partner integrations. CORS misconfigurations and SSRF on webhook/callback parameters are high-frequency findings.
-
-**SaaS platforms with multi-tenant architecture**
-IDOR candidates surface frequently on platforms where resources are referenced by numeric or sequential IDs in URL parameters.
-
----
-
-### Best practice: pair Nyxora with manual testing
-
-Nyxora is your first pass. It maps the surface, grabs quick wins, and hands you a prioritized list. Manual authenticated testing on the endpoints it surfaces is where the deeper bugs live.
-
+```bash
+bash nyxora.sh <domain> [options]
 ```
-Phase 1 — Nyxora (unauthenticated, ~5–12 min)
-  → Subdomains, live hosts, parameters, quick vulnerability checks
-
-Phase 2 — Manual review of Nyxora output (~30–60 min)
-  → Validate findings, investigate IDOR/XSS/SQLi candidates
-
-Phase 3 — Authenticated manual testing on surfaced endpoints
-  → Business logic, auth bypass, chained vulnerabilities
-```
-
----
-
-## Who This Tool Is For
-
-- **Bug bounty hunters** who want faster triage with fewer false positives
-- **Penetration testers** who need a portable, zero-setup recon drop
-- **Security researchers** who want real vulnerability signals, not raw URL lists
-- **Beginners** who want serious automation without managing a complex toolchain
-- **Anyone** who has wasted hours setting up Go environments just to run a single scan
 
 ---
 
 ## Quick Start
 
-Run using bash (no chmod required in most cases)
-
 ```bash
-git clone https://github.com/thivyas111-pixel/nyxora
+# Basic scan
+bash nyxora.sh example.com
 
-cd nyxora
+# Deep scan
+bash nyxora.sh example.com --deep
 
-bash nyxora.sh target.com
+# Authenticated — session cookie
+bash nyxora.sh example.com --cookie "session=abc123; csrf=xyz789"
 
-# Deep scan (more sources, crawl depth 3)
-bash nyxora.sh target.com --deep
+# Authenticated — Bearer token
+bash nyxora.sh example.com --header "Authorization: Bearer eyJhbGci..."
 
-# With OOB SSRF probe (Burp Collaborator, interactsh, etc.)
-bash nyxora.sh target.com --oob your.interactsh.url
+# Authenticated — cookie + multiple headers
+bash nyxora.sh example.com \
+  --cookie "session=abc123" \
+  --header "Authorization: Bearer TOKEN" \
+  --header "X-API-Key: mykey"
 
-# Restrict to in-scope hosts
-bash nyxora.sh target.com --scope-file scope.txt
+# Throttled scan, 200ms between requests per worker
+bash nyxora.sh example.com --rate-limit 200
 
-# Custom threads and timeout
-bash nyxora.sh target.com --threads 30 --timeout 8
+# OOB SSRF confirmation
+bash nyxora.sh example.com --oob your.burpcollaborator.net
 
-# Save to custom output directory
-bash nyxora.sh target.com --out ~/bounty/target
+# Custom output dir, 30 threads, 8s timeout
+bash nyxora.sh example.com --out /tmp/recon/example --threads 30 --timeout 8
+
+# Scoped — only test subdomains listed in file
+bash nyxora.sh example.com --scope-file in_scope.txt
+
+# Skip HTML report for faster results
+bash nyxora.sh example.com --no-report
 ```
 
-> **Note for contributors:** If you re-download the raw file manually instead of cloning, run `chmod +x nyxora.sh` once before use. The executable bit is stored in git and preserved for all cloners automatically.
+> **Getting your session cookie:** open browser DevTools → Network tab → click any authenticated request → copy the full value of the `Cookie:` request header.
 
 ---
 
 ## Options
 
-| Flag | Description | Default |
-|---|---|---|
-| `--deep` | More passive sources, crawl depth 3, extended Wayback lookups | off |
-| `--oob <url>` | Active SSRF probe with out-of-band callback URL | off |
-| `--scope-file <file>` | Restrict scanning to in-scope hosts listed in file | off |
-| `--out <dir>` | Custom output directory | `~/nyxora-{domain}-{timestamp}` |
-| `--no-report` | Skip HTML report generation | off |
-| `--threads <n>` | Parallel worker count | 20 |
-| `--timeout <n>` | Per-request timeout in seconds | 6 |
-| `--help`, `-h` | Show usage | — |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--deep` | off | More subdomain sources, crawl depth 3 |
+| `--out <dir>` | `~/nyxora-<domain>-<ts>` | Custom output directory |
+| `--no-report` | off | Skip HTML report generation |
+| `--threads <n>` | `20` | Parallel worker count |
+| `--timeout <n>` | `6` | Per-request timeout in seconds |
+| `--rate-limit <ms>` | `0` | Sleep (ms) between requests per worker |
+| `--scope-file <file>` | none | Only test subdomains listed in file (one per line) |
+| `--oob <host>` | none | OOB callback host for blind SSRF probes |
+| `--cookie <string>` | none | Session cookie(s) for authenticated scanning |
+| `--header <string>` | none | Extra auth header — repeat once per header |
+| `--help` | — | Show usage and exit |
 
 ---
 
-## Example Output
+## Features
 
-```
-[nyxora] Target        : api.example.com
-[nyxora] Mode          : deep | threads=20 | timeout=6s
-[nyxora] Started       : 2025-04-20 14:30:11
+### Reconnaissance
 
-[RECON]  Subdomains found    : 67
-[RECON]  Live hosts          : 38
-[RECON]  URLs crawled        : 3,891
-[RECON]  Parameters found    : 156 unique patterns
+- **Subdomain Enumeration** — 12 passive sources in standard mode: crt.sh, AlienVault OTX, HackerTarget, URLScan, Wayback Machine, ThreatCrowd, SecurityTrails, ThreatMiner, DNSBufferOver, Riddler, RapidDNS, Anubis DB. Deep mode adds Certspotter, TLS BufferOver, SonarSearch, SynapsInt, and extended Wayback + crt.sh queries.
+- **DNS Resolution & Wildcard Pruning** — 4-probe consensus with body-hash comparison. Falls back to `dig`/`host` when HTTP resolution returns nothing.
+- **HTTP Probing** — Status codes, page size gating, 404-canary validation, technology fingerprinting (PHP, ASP.NET, Nginx, Apache, WordPress, Drupal, Joomla, Cloudflare, AWS, GCP, Azure, Fastly, Sucuri, Lighttpd, Tomcat, IIS).
+- **URL Crawling** — Recursive depth-2/3 crawler across all live hosts combined with Wayback Machine passive URLs. Filters out static assets automatically.
 
-[ENGINE] IDOR candidates
-  HIGH   /api/v2/users/{id}/profile          param=user_id    (ID param heuristic match)
-  HIGH   /account/orders/{id}                param=order_id   (numeric ID, direct object ref)
+### Vulnerability Scanning
 
-[ENGINE] XSS reflection
-  HIGH   /search?q=FUZZ                      reflected in <title>, unencoded   [ctx:html]
-  HIGH   /feedback?msg=FUZZ                  reflected in response body         [ctx:attr]
+All 17 probe functions carry your `--cookie` / `--header` credentials on every request.
 
-[ENGINE] SQLi candidates
-  HIGH   /products?category=FUZZ             MySQL error pattern, baseline delta confirmed
-                                              [payload: ']
+- **JS Secret Scanner** — 30 patterns: AWS, Google, Firebase, Slack, GitHub, Stripe, Twilio, Heroku, SendGrid, Mailchimp, Mailgun, PayPal/Braintree, Square, DigitalOcean, Shopify, Okta, JWT, private keys, generic secrets. Skips CDN/analytics noise.
+- **Subdomain Takeover** — 35 service fingerprints (Heroku, GitHub Pages, Azure, Fastly, Shopify, AWS S3, Tumblr, Bitbucket, Ghost, Netlify, Vercel, Webflow, Zendesk, Intercom, Surge, Cargo, Ngrok, WP Engine, Wix, UserVoice, GitLab Pages, Pantheon, AgileCRM, ReadMe.io, and more) plus CNAME-dangling detection.
+- **Security Header Audit** — Missing HSTS, X-Frame-Options, X-Content-Type-Options, CSP, Referrer-Policy, Permissions-Policy, COOP. Insecure cookie flags. Server version disclosure.
+- **CORS Misconfiguration** — Wildcard, reflected origin, null-origin, and credential-leaking CORS. Standard + pre-flight OPTIONS probes.
+- **XSS Detection** — Random-byte canary, three encoding gates (HTML entities, URL, Unicode), HTML comment context gate, second-request confirmation probe (eliminates non-deterministic reflections), context classification (`html` / `attr` / `script`), CSP nonce/hash confidence downgrade.
+- **SQL Injection** — 8 payloads, 20 error signatures across MySQL, PostgreSQL, Oracle, SQLite, MSSQL, JDBC, PDO, ActiveRecord. WAF pre-detection to skip blocked targets.
+- **LFI / Path Traversal** — 8 payloads including null-byte, double-encoding, `php://filter`. Pre-filtered to file/path/template/include parameters.
+- **Host Header Injection** — 7 injection headers. Body reflection and redirect-chain confirmation.
+- **Open Redirect** — Keyword-filtered parameters, three payload schemes (`https://`, `http://`, `//`), follows up to 5 hops.
+- **SSRF Detection** — 25+ parameter keywords, OOB-confirmed mode with redirect-chain following.
+- **IDOR Detection** — Baseline size gate, numeric probes (0/1/2/100/9999999), UUID probes, confidence scoring (MEDIUM/HIGH), semantic parameter name boosting.
+- **GraphQL Discovery** — 14 common paths, introspection schema detection.
+- **HTTP Method Enumeration** — OPTIONS `Allow` header analysis, active PUT/DELETE/PATCH/TRACE probes, TRACE XST canary confirmation.
+- **API Version Probing** — 18 patterns: `/v1/`–`/v4/`, `/api/`, `/rest/`, `/internal/`, `/private/`, `/admin/api/`, `/rpc/`, `/jsonrpc/`.
+- **Cache Poisoning Hints** — Header reflection and `X-Forwarded-Scheme` status-change probes.
+- **Behavior Diffing** — 4-probe differential analysis with md5 hashing and size-spread gate to surface truly dynamic parameters.
 
-[ENGINE] Open redirects
-  MEDIUM /login?next=FUZZ                    302 redirect to injected marker URL
+### Reporting
 
-[ENGINE] SSRF candidates
-  MEDIUM /fetch?url=FUZZ                     URL parameter matched; OOB probe sent
+| Format | Path | Description |
+|--------|------|-------------|
+| **HTML** | `final/report.html` | Interactive, filterable, paginated tables with severity badges |
+| **Markdown** | `final/report.md` | For GitHub / Notion / Obsidian |
+| **Text** | `final/report.txt` | Plain-text summary, pipeable |
+| **JSON** | `logs/stats.json` | Machine-readable stats for CI/CD |
 
-[ENGINE] JS secrets
-  HIGH   /static/app.js                      [SECRET:AWS_ACCESS_KEY] AKIAxxxxxxxxxxxxxxxxx
-  MEDIUM /static/config.js                   [SECRET:BEARER_TOKEN] Bearer eyJhbGci...
+---
 
-[ENGINE] Subdomain takeover
-  HIGH   staging.example.com                 [TAKEOVER:AWS S3] nosuchbucket response
+## Requirements
 
-[ENGINE] CORS misconfiguration
-  HIGH   api.example.com                     [CORS:REFLECTS_ORIGIN] + [CORS:CREDS_LEAK]
+Verified at startup — all ship with every standard Linux distribution:
 
-[ENGINE] Security headers
-  INFO   app.example.com                     [MISSING:CSP] [MISSING:HSTS] [COOKIE:no-Secure]
+| Tool | Purpose |
+|------|---------|
+| `curl` | All HTTP requests |
+| `bash` | Script runtime (≥ 4.0) |
+| `awk` | Text processing |
+| `grep` | Pattern matching |
+| `sort` | Deduplication |
+| `sed` | Stream editing |
+| `tr` | Character translation |
+| `wc` | Line/byte counting |
+| `md5sum` | Body hashing for wildcard detection |
 
-[REPORT] HTML     → ~/nyxora-example.com-20250420-1430/final/report.html
-[REPORT] Markdown → ~/nyxora-example.com-20250420-1430/final/report.md
-[REPORT] TXT      → ~/nyxora-example.com-20250420-1430/final/report.txt
-
-[nyxora] Completed in 11m 43s
-```
+Optional (used when available): `dig`, `host`, `bc`
 
 ---
 
 ## Output Structure
 
 ```
-~/nyxora-example.com-20250420-1430/
+~/nyxora-<domain>-<YYYYMMDD-HHMM>/
 ├── subs/
-│   ├── raw.txt                         # All discovered subdomains (deduplicated, cleaned)
-│   ├── resolved.txt                    # DNS-resolved, wildcard-filtered subdomains
-│   └── wildcard_ips.txt                # Detected wildcard IPs (filtered out)
+│   ├── raw.txt                   # All discovered subdomains
+│   ├── resolved.txt              # DNS-resolved, wildcard-filtered
+│   └── wildcard_ips.txt          # Detected wildcard IPs
 ├── http/
-│   ├── live.txt                        # Live host URLs
-│   └── probe_full.txt                  # Full probe output: URL, status, size, title, tech
+│   ├── live.txt                  # Live HTTP/HTTPS hosts
+│   └── probe_full.txt            # Status, size, title, tech per host
 ├── crawl/
-│   ├── crawled_urls.txt                # All discovered URLs (live crawl + Wayback)
-│   ├── urls_with_params.txt            # Parameterized URLs only
-│   └── params_normalized.txt           # Deduplicated FUZZ-normalized patterns
+│   ├── crawled_urls.txt          # All crawled URLs
+│   ├── urls_with_params.txt      # URLs with query parameters
+│   └── params_normalized.txt     # FUZZ-substituted param patterns
 ├── engine/
-│   ├── diff/
-│   │   └── dynamic.txt                 # Parameters confirmed as behaviorally dynamic
-│   ├── behavior/
-│   │   ├── idor.txt                    # CRITICAL — IDOR candidates with confidence score
-│   │   └── open_redirects.txt          # MEDIUM — Confirmed open redirect endpoints
-│   ├── reflection/
-│   │   ├── xss_candidates.txt          # HIGH — XSS reflection points with context tag
-│   │   ├── sqli_candidates.txt         # HIGH — SQLi error patterns with payload label
-│   │   ├── ssrf_candidates.txt         # MEDIUM — SSRF-prone parameter URLs
-│   │   └── ssrf_oob_log.txt            # OOB probe log (when --oob is used)
+│   ├── secrets/findings.txt      # JS secret matches
+│   ├── takeover/candidates.txt   # Takeover fingerprint matches
 │   ├── headers/
-│   │   ├── audit.txt                   # Full header audit results
-│   │   ├── cors_issues.txt             # CORS misconfiguration findings
-│   │   └── missing_headers.txt         # Missing / weak security header findings
-│   ├── secrets/
-│   │   ├── js_urls.txt                 # All JS file URLs discovered
-│   │   └── findings.txt                # CRITICAL — Secret matches with source URL
-│   ├── takeover/
-│   │   └── candidates.txt              # CRITICAL — Takeover candidates with service label
-│   ├── valid_params.txt                # Baseline-validated HTML parameter URLs
-│   └── valid_params_json.txt           # Baseline-validated JSON API parameter URLs
+│   │   ├── cors_issues.txt       # CORS misconfigurations
+│   │   └── missing_headers.txt   # Missing security headers
+│   ├── reflection/
+│   │   ├── xss_candidates.txt    # XSS with ctx + confidence
+│   │   ├── sqli_candidates.txt   # SQLi error-based
+│   │   └── ssrf_candidates.txt   # SSRF pattern matches
+│   ├── behavior/
+│   │   ├── idor.txt              # IDOR with confidence score
+│   │   ├── open_redirects.txt
+│   │   └── api_endpoints.txt
+│   ├── lfi/candidates.txt
+│   ├── hostinj/findings.txt
+│   ├── graphql/endpoints.txt     # With introspection status
+│   ├── methods/findings.txt
+│   ├── cache/hints.txt
+│   └── diff/dynamic.txt          # Dynamic parameter URLs
 ├── final/
-│   ├── report.html                     # Interactive HTML dashboard
-│   ├── report.md                       # Markdown summary (GitHub-ready)
-│   └── report.txt                      # Plain-text severity-grouped report
+│   ├── report.html
+│   ├── report.md
+│   └── report.txt
 └── logs/
-    ├── run.log                         # Full timestamped execution log
-    └── stats.json                      # Pipeline statistics (CI/CD ready)
+    ├── run.log
+    └── stats.json
 ```
 
 ---
 
-## Detection Engine Reference
+## Severity Classification
 
-### Diff Engine
-Sends three distinct mutation probes per URL and compares MD5 hashes and response sizes. All three mutations must produce different responses — with a non-trivial size spread — before a parameter is flagged dynamic. Single-mutation tools produce far more false positives.
-
-### IDOR Engine
-Swaps parameter values to 1, 2, 100, and 9999999. If the first three responses diverge in hash and size, and the out-of-range value (9999999) returns significantly less content, the parameter is flagged. Parameter name heuristics (`id`, `user_id`, `account`, `order_id`, `invoice`, `ticket`, `record`, etc.) automatically elevate confidence to HIGH.
-
-### XSS Engine
-Injects a timestamped canary value and checks for unencoded reflection in an HTML content-type response. Entity-encoded or attribute-encoded reflections are discarded. X-XSS-Protection blocking headers are respected. Reflection context is recorded as `html`, `attr`, or `script`.
-
-### SQLi Engine
-Sends a safe baseline first. If the baseline response already contains any of 14 SQL error patterns (MySQL, PostgreSQL, Oracle, SQLite, MSSQL, JDBC), the URL is skipped. Five payloads are then tested: `'`, `1'--`, `1 AND 1=2--`, `"`, `1"--`. All payloads are URL-encoded before sending.
-
-### SSRF Engine
-Performs keyword matching on parameter names against a list of 20+ SSRF-prone names (`url`, `uri`, `host`, `src`, `file`, `resource`, `image`, `data`, `load`, `fetch`, `open`, `proxy`, `service`, `server`, `backend`, `endpoint`, `webhook`, `callback`, `api`, `target`, `link`, `redirect`, `location`). Optional `--oob` flag sends curl requests substituting the OOB callback URL for active DNS/HTTP confirmation.
-
-### Header & CORS Engine
-Sends requests with `Origin: https://evil.com` and inspects the response for CORS reflection. Checks for wildcard origin, origin reflection, and credential leak (reflected origin + `Access-Control-Allow-Credentials: true`). Also audits five missing header types and three cookie flag issues per host.
-
-### JS Secret Engine
-Downloads every JS file reachable from live hosts. Scans each file against 12 compiled regex patterns. Matches are truncated to 60 characters in output to avoid storing live credentials at full length.
-
-### Takeover Engine
-Fetches each resolved subdomain and checks for 8 service-specific body signatures. Returns with no finding if the HTTP status is 200 or 403, since those typically indicate the resource is still claimed.
+| Severity | Findings |
+|----------|---------|
+| 🔴 **CRITICAL** | JS Secrets, Subdomain Takeover, CORS credential leak, IDOR |
+| 🟠 **HIGH** | XSS, SQLi, LFI, Host Header Injection, CORS wildcard/reflected |
+| 🟡 **MEDIUM** | GraphQL endpoints, HTTP method issues, Cache hints, Open redirects, SSRF |
+| 🔵 **INFO** | API version endpoints, missing headers, server disclosure |
 
 ---
 
-## Performance
+## Changelog
 
-| Metric | Standard | Deep |
-|---|---|---|
-| Subdomains found | ~45 | ~67 |
-| Live hosts | ~23 | ~38 |
-| URLs crawled | ~1,200 | ~3,900 |
-| Dynamic parameters | ~89 | ~156 |
-| Runtime | ~4–5 min | ~11–13 min |
+### v3.1.0
+- **ADD** `--cookie` flag: session cookie for authenticated scanning
+- **ADD** `--header` flag: arbitrary auth header, repeatable
+- **ADD** `_acurl` helper: all 17 probe functions now carry auth on every request
+- **ADD** `AUTH_HEADERS_FILE`: array serialized to temp file for correct subshell export
+- **FIX** XSS: second-request confirmation probe eliminates non-deterministic reflections
+- **FIX** XSS: HTML comment context gate — canary inside comments no longer flagged
+- **FIX** XSS: context (`html`/`attr`/`script`) detected before confidence assignment
+- **FIX** `_acurl` applied consistently across all probe functions: `_http_probe`, `_header_audit`, `_takeover_check`, `_js_scan`, `_graphql_probe`, `_method_check`, `_hostinj_check`, `_cache_hint`, `_api_version_probe`, `_baseline_check`, `_diff_check`, `_idor_check`, `_xss_check`, `_redirect_check`, `_sqli_check`, `_lfi_check`, `_ssrf_oob_probe`
 
-*Benchmarked on a 4-core system with a 100 Mbps connection, 20 threads, 6s timeout.*
-
-### Scan Profiles
-
-```bash
-# Balanced (default)
-bash nyxora.sh target.com --threads 20 --timeout 6
-
-# Fast — high-resource environment
-bash nyxora.sh target.com --threads 50 --timeout 5
-
-# Stealth — low footprint
-bash nyxora.sh target.com --threads 5 --timeout 15
-```
+### v3.0.0
+- See script header for full v3.0 changelog (30+ fixes and additions over v2.0)
 
 ---
 
-## Workflow Integration
+## Legal Notice
 
-### Bug Bounty Workflow
-
-```bash
-# 1. Run recon
-bash nyxora.sh target.com --deep
-
-# 2. Review the HTML report
-open ~/nyxora-target.com-*/final/report.html
-
-# 3. Triage by severity — start critical
-cat ~/nyxora-target.com-*/engine/secrets/findings.txt
-cat ~/nyxora-target.com-*/engine/takeover/candidates.txt
-cat ~/nyxora-target.com-*/engine/headers/cors_issues.txt
-cat ~/nyxora-target.com-*/engine/behavior/idor.txt
-
-# 4. Review high-severity findings
-cat ~/nyxora-target.com-*/engine/reflection/xss_candidates.txt
-cat ~/nyxora-target.com-*/engine/reflection/sqli_candidates.txt
-
-# 5. Pipe parameterized URLs into manual tools
-cat ~/nyxora-target.com-*/crawl/urls_with_params.txt | ffuf -w - ...
-
-# 6. Use resolved subdomains for further recon
-cat ~/nyxora-target.com-*/subs/resolved.txt | ...
-```
+Nyxora is intended for use only on systems you own or have **explicit written permission** to test. Unauthorized use against third-party systems may violate the Computer Fraud and Abuse Act (CFAA), the UK Computer Misuse Act, or equivalent laws in your jurisdiction. Always operate within your bug bounty program scope.
 
 ---
 
-## Requirements
+## Author
 
-Nyxora requires only tools that ship with every Linux and macOS system by default:
-
-`bash` (v4.0+) · `curl` · `awk` · `grep` · `sort` · `sed` · `tr` · `wc` · `md5sum`
-
-**Supported platforms:** Linux (all distributions) · macOS · WSL · Git Bash on Windows
-
-Nyxora runs a dependency check on startup and reports any missing tool before doing anything else. On modern Linux and macOS, this check always passes.
+Built by [@thivyas111-pixel](https://github.com/thivyas111-pixel)
 
 ---
 
-## Troubleshooting
-
-**Permission denied** *(only if you downloaded the raw file manually, not via git clone)*
-```bash
-chmod +x nyxora.sh 
-bash nyxora.sh target.com
-```
-
-**No subdomains found**
-```bash
-bash nyxora.sh target.com --deep
-```
-
-**Timeout errors on slow targets**
-```bash
-bash nyxora.sh target.com --timeout 15 --threads 10
-```
-
-**Restrict to in-scope hosts only**
-```bash
-echo "api.target.com" > scope.txt
-echo "app.target.com" >> scope.txt
-bash nyxora.sh target.com --scope-file scope.txt
-```
-
-**Confirm SSRF findings with OOB**
-```bash
-bash nyxora.sh target.com --oob your.interactsh.url
-```
-
----
-
-## Philosophy
-
-Most security tools optimize for coverage. Nyxora optimizes for precision.
-
-A finding you have to manually verify is half a finding. A false positive you have to chase costs time you could spend on a real bug. Nyxora runs stricter validation gates at every stage — baseline comparison before injection, encoding checks before flagging reflection, heuristic name matching before assigning confidence — so that when something is labelled HIGH, it is worth opening.
-
-The goal is not to scan everything. The goal is to find bugs.
-
----
-
-## Responsible Use
-
-Nyxora is for authorized security testing only.
-
-- Use only on targets you have explicit permission to test
-- Follow the rules of the bug bounty program you are participating in
-- Respect rate limits and service terms of use
-- Do not use for unauthorized access, data exfiltration, or service disruption
-
----
-
-## License
-
-Provided for educational and authorized security research purposes.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
-
----
-
-
+<div align="center">
+<sub>curl · bash · awk · grep — nothing to install.</sub>
+</div>
