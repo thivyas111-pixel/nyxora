@@ -13,10 +13,9 @@
 
 [![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-blue)](#requirements)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/Version-3.1.0-red)](https://github.com/thivyas111-pixel/nyxora)
 
-*curl · bash · awk · grep — nothing to install.*
+*curl · bash · awk · grep*
 
 </div>
 
@@ -245,12 +244,8 @@ Nyxora is intended for use only on systems you own or have **explicit written pe
 
 ---
 
-## Author
-
-Built by [@thivyas111-pixel](https://github.com/thivyas111-pixel)
-
 ---
 
 <div align="center">
-<sub>curl · bash · awk · grep — nothing to install.</sub>
+<sub>curl · bash · awk · grep </sub>
 </div>
