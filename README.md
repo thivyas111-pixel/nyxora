@@ -222,15 +222,15 @@ AWS, GCP, and Azure deployments are fingerprinted automatically. Subdomain takeo
 
 | Scenario | Use Nyxora? | Why |
 |---|---|---|
-| Starting recon on a new target | ✅ Yes | Full surface map in one run |
-| Wide-scope `*.domain.com` programs | ✅ Yes | Built for breadth, handles many subdomains |
-| Public APIs with no login required | ✅ Yes | Parameter detection runs without auth |
-| Programs with VDP or new acquisitions | ✅ Yes | Legacy infra tends to have low-hanging fruit |
-| Scheduled monitoring of known targets | ✅ Yes | CI/CD integration catches new exposure over time |
-| Narrow single-page app with no subdomains | ⚠️ Limited | Less surface to enumerate, fewer parameters |
-| Targets fully behind login walls | ⚠️ Limited | Only the pre-auth surface is visible |
-| Mobile API backends (no web frontend) | ⚠️ Limited | No JS files or HTML to crawl |
-| Internal / private network targets | ❌ No | Requires network access; Nyxora runs externally |
+| Starting recon on a new target | Yes | Full surface map in one run |
+| Wide-scope `*.domain.com` programs | Yes | Built for breadth, handles many subdomains |
+| Public APIs with no login required | Yes | Parameter detection runs without auth |
+| Programs with VDP or new acquisitions | Yes | Legacy infra tends to have low-hanging fruit |
+| Scheduled monitoring of known targets | Yes | CI/CD integration catches new exposure over time |
+| Narrow single-page app with no subdomains | Limited | Less surface to enumerate, fewer parameters |
+| Targets fully behind login walls | Limited | Only the pre-auth surface is visible |
+| Mobile API backends (no web frontend) | Limited | No JS files or HTML to crawl |
+| Internal / private network targets | No | Requires network access; Nyxora runs externally |
 
 ---
 
