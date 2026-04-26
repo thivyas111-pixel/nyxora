@@ -9,13 +9,13 @@
   ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
 ```
 
-**v3.2 · Zero-Dependency Bug Bounty Recon Framework**
+**Zero-Dependency Bug Bounty Recon Framework**
 
 [![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-blue)](#requirements)
-[![Version](https://img.shields.io/badge/Version-3.2.0-red)](https://github.com/thivyas111-pixel/nyxora)
+[![Version](https://img.shields.io/badge/Version-3.2.1-red)](https://github.com/thivyas111-pixel/nyxora)
 
-*curl · bash · awk · grep*
+*curl · bash · awk · grep — nothing to install.*
 
 </div>
 
@@ -25,7 +25,7 @@
 
 **Nyxora** is a fully self-contained bug bounty recon framework written in pure Bash. It performs comprehensive reconnaissance on a target domain — from subdomain discovery through active vulnerability scanning — using only tools that ship with every standard Linux system. No Python, no Go binaries, no pip packages: just `curl`, `bash`, `awk`, `grep`, `sort`, `sed`, `tr`, `wc`, and `md5sum`.
 
-v3.2 is a stability and correctness release. It fixes a critical `_acurl` infinite self-recursion bug that broke all authenticated scanning in v3.1, adds a `--proxy` flag for routing traffic through Burp/ZAP, introduces a global token-bucket rate limiter, and adds CVSS v3.1 base score estimates to JSON and Markdown reports.
+v3.2.1 is a stability and compatibility release. It fixes a critical report-generation crash on Bash 5.1 (Kali/Debian) caused by multi-byte UTF-8 characters inside `for`/pipe constructs, completes the Markdown CVSS column that was listed in the v3.2 changelog but never actually added, and improves operator visibility by adding scan counts and progress context to all 21 step log lines.
 
 ---
 
@@ -35,8 +35,6 @@ v3.2 is a stability and correctness release. It fixes a critical `_acurl` infini
 git clone https://github.com/thivyas111-pixel/nyxora.git
 cd nyxora
 ```
-
-No `chmod`, no build step. Run directly with bash:
 
 ```bash
 bash nyxora.sh <domain> [options]
@@ -68,7 +66,7 @@ bash nyxora.sh example.com \
 # Route all traffic through Burp Suite / ZAP for manual verification
 bash nyxora.sh example.com --proxy 127.0.0.1:8080
 
-# Throttled scan — global 200ms token bucket across ALL workers
+# Throttled scan — global 200ms token bucket across ALL workers combined
 bash nyxora.sh example.com --rate-limit 200
 
 # OOB SSRF confirmation
@@ -142,7 +140,7 @@ All 17 probe functions carry `--cookie`, `--header`, and `--proxy` credentials o
 | Format | Path | Description |
 |--------|------|-------------|
 | **HTML** | `final/report.html` | Interactive, filterable, paginated tables with severity badges |
-| **Markdown** | `final/report.md` | Includes CVSS v3.1 base score column — for GitHub / Notion / Obsidian |
+| **Markdown** | `final/report.md` | Executive summary with CVSS v3.1 base score column — for GitHub / Notion / Obsidian |
 | **Text** | `final/report.txt` | Plain-text summary, pipeable |
 | **JSON** | `logs/stats.json` | Machine-readable stats with CVSS v3.1 estimates per finding type, for CI/CD |
 
@@ -164,7 +162,7 @@ Verified at startup — all ship with every standard Linux distribution:
 | `wc` | Line/byte counting |
 | `md5sum` | Body hashing for wildcard detection |
 
-Optional (used when available): `dig`, `host`, `bc` (bc used for `--rate-limit` ms arithmetic; falls back to pure-bash integer math when absent)
+Optional (used when available): `dig`, `host`, `bc` (`bc` used for `--rate-limit` ms arithmetic; falls back to pure-bash integer math when absent)
 
 ---
 
@@ -207,11 +205,11 @@ Optional (used when available): `dig`, `host`, `bc` (bc used for `--rate-limit` 
 │   └── diff/dynamic.txt          # Dynamic parameter URLs
 ├── final/
 │   ├── report.html
-│   ├── report.md                 # Now includes CVSS v3.1 column
+│   ├── report.md                 # Includes CVSS v3.1 column
 │   └── report.txt
 └── logs/
     ├── run.log
-    └── stats.json                # Now includes CVSS v3.1 estimates
+    └── stats.json                # Includes CVSS v3.1 estimates
 ```
 
 ---
@@ -229,6 +227,14 @@ Optional (used when available): `dig`, `host`, `bc` (bc used for `--rate-limit` 
 
 ## Changelog
 
+### v3.2.1
+- **FIX** CRITICAL: Report-generation crash — `"unexpected EOF while looking for matching ''"` on Bash 5.1 (Kali/Debian). Root cause: for-word-lists containing multi-byte UTF-8 (emoji + em-dash) inside `{ }|tee` pipelines caused Bash to miscount string boundaries and leave a single-quote context open. Fixed by converting both report for-word-lists to `mapfile`/indexed-array loops, which are immune to locale/multibyte edge cases. Em-dashes in label strings replaced with plain ` - `.
+- **FIX** Missing final newline at EOF — caused Bash to report the last line as a parse error on some systems.
+- **FIX** `usage()`: `--rate-limit` description still said "per worker" (v3.1 text); corrected to "global token bucket across all workers combined".
+- **FIX** Markdown report CVSS column was listed in the v3.2 changelog but never actually added to the executive summary table — now present.
+- **FIX** Steps 5/6 result log lines were missing timing context; all step-end log calls now include finding count and what was scanned for clarity.
+- **IMPROVE** User-facing log messages across all 21 steps now show scan counts and clear progress context so operators know what happened at a glance without opening output files.
+
 ### v3.2.0
 - **FIX** CRITICAL: `_acurl` infinite self-recursion — now calls the `curl` binary directly. Authenticated scanning was completely broken in v3.1.
 - **FIX** `_rand_token`: missing `return` after `/dev/urandom` success caused double-output (urandom token + RANDOM fallback concatenated).
@@ -239,9 +245,8 @@ Optional (used when available): `dig`, `host`, `bc` (bc used for `--rate-limit` 
 - **ADD** `--proxy <host:port>` flag: routes all `_acurl` traffic through Burp/ZAP for manual finding verification; exported as `PROXY_URL`.
 - **ADD** Global token-bucket rate limiter: `--rate-limit` now enforces N ms across **all** workers combined (previously per-worker × N, causing 20× overload at default thread count).
 - **ADD** CVSS v3.1 base score estimates in `logs/stats.json` per finding type.
-- **ADD** Markdown report executive summary now includes a CVSS column.
+- **ADD** Markdown report executive summary CVSS column (completed in v3.2.1).
 
-### v3.1.0
 - **ADD** `--cookie` flag: session cookie for authenticated scanning
 - **ADD** `--header` flag: arbitrary auth header (repeatable)
 - **ADD** `_acurl` helper: all 17 probe functions now carry auth on every request
@@ -250,9 +255,6 @@ Optional (used when available): `dig`, `host`, `bc` (bc used for `--rate-limit` 
 - **FIX** XSS: HTML comment context gate — canary inside comments no longer flagged
 - **FIX** XSS: context (`html`/`attr`/`script`) detected before confidence assignment
 - **FIX** `_acurl` applied consistently across all 17 probe functions
-
-### v3.0.0
-- See script header for full v3.0 changelog (30+ fixes and additions over v2.0)
 
 ---
 

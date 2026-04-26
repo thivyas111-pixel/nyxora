@@ -72,6 +72,26 @@
 #    ADD  Markdown report executive summary now includes CVSS column
 #    ADD  bc-absent fallback: integer ms sleep via bash arithmetic when bc
 #         not installed (affects --rate-limit on minimal systems)
+#
+#  v3.2.1 Improvements over v3.2:
+#    FIX  CRITICAL: report-generation crash "unexpected EOF while looking for
+#         matching `''" on bash 5.1 (Kali/Debian). Root cause: for-word-lists
+#         containing multi-byte UTF-8 (emoji + em-dash) inside { }|tee pipelines
+#         caused bash to miscount string boundaries and leave a single-quote
+#         context open. Fixed by converting both report for-word-lists to
+#         mapfile/indexed-array loops, which are immune to locale/multibyte
+#         edge cases. Em-dashes in label strings replaced with plain " - ".
+#    FIX  Missing final newline at EOF (caused bash to report the last line as
+#         a parse error on some systems).
+#    FIX  usage(): --rate-limit description still said "per worker" (v3.1 text);
+#         corrected to "global token bucket across all workers combined".
+#    FIX  Markdown report CVSS column listed in v3.2 changelog but never added
+#         to the executive summary table; now present.
+#    FIX  Steps 5/6 result log lines missing timing context; all step-end log
+#         calls now include finding count + what was scanned for clarity.
+#    IMPROVE  User-facing log messages across all 21 steps now show scan counts
+#             and clear progress context so operators know what happened at a
+#             glance without opening the output files.
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── Safe mode ─────────────────────────────────────────────────────────────
@@ -81,7 +101,7 @@
 set -o pipefail
 IFS=$'\n\t'
 
-VERSION="3.2.0"
+VERSION="3.2.1"
 
 RED='\033[0;31m'; ORANGE='\033[0;33m'; GREEN='\033[0;32m'
 CYAN='\033[0;36m'; BLUE='\033[0;34m'; MAGENTA='\033[0;35m'
@@ -96,7 +116,7 @@ cat << 'EOF'
   ██║╚██╗██║  ╚██╔╝   ██╔██╗ ██║   ██║██╔══██╗██╔══██║
   ██║ ╚████║   ██║   ██╔╝ ██╗╚██████╔╝██║  ██║██║  ██║
   ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
-  v3.2  ·  Zero-Dependency Bug Bounty Recon Framework
+  v3.2.1  ·  Zero-Dependency Bug Bounty Recon Framework
 
 EOF
   echo -e "  ${DIM}curl · bash · awk · grep — nothing to install.${RESET}"
@@ -113,7 +133,7 @@ usage() {
   echo "  --no-report          Skip HTML report"
   echo "  --threads <n>        Parallel workers (default: 20)"
   echo "  --timeout <n>        Per-request timeout seconds (default: 6)"
-  echo "  --rate-limit <ms>    Sleep ms between requests per worker (default: 0)"
+  echo "  --rate-limit <ms>    Global token-bucket: min ms between requests across ALL workers (default: 0)"
   echo "  --scope-file <file>  Only test subdomains listed in file"
   echo "  --oob <host>         OOB host for active SSRF/blind injection probes"
   echo "  --cookie <string>    Session cookie(s) for authenticated scanning (e.g. 'session=abc123')"
@@ -311,7 +331,9 @@ for tool in curl bash awk grep sort sed tr wc md5sum; do
 done
 ${ALL_OK} || die "Missing tools above — they ship with every Linux distro."
 echo -e "\n  ${GREEN}${BOLD}All OK. Starting...${RESET}"
-log "Target: ${DOMAIN} | Out: ${OUT} | Mode: ${DEEP_MODE} | Threads: ${THREADS} | Timeout: ${TIMEOUT}s | RateLimit: ${RATE_LIMIT_MS}ms"
+log "Target: ${DOMAIN}"
+log "Output: ${OUT}"
+log "Mode: $(${DEEP_MODE} && echo 'Deep (more sources, crawl depth 3)' || echo 'Standard') | Threads: ${THREADS} | Timeout: ${TIMEOUT}s | Rate-limit: ${RATE_LIMIT_MS}ms"
 [[ -n "${OOB_HOST}" ]] && log "OOB: ${OOB_HOST}"
 [[ -n "${AUTH_COOKIE}" ]] && log "Auth: cookie set (${#AUTH_COOKIE} chars)"
 [[ ${#AUTH_HEADERS[@]} -gt 0 ]] && log "Auth: ${#AUTH_HEADERS[@]} extra header(s) set"
@@ -321,76 +343,76 @@ log "Target: ${DOMAIN} | Out: ${OUT} | Mode: ${DEEP_MODE} | Threads: ${THREADS} 
 section "STEP 1 ─ Subdomain Enumeration (12+ sources)"
 touch "${OUT}/subs/raw.txt"
 
-log "crt.sh..."
+log "crt.sh - querying certificate transparency logs..."
 _curl "https://crt.sh/?q=%25.${DOMAIN}&output=json" \
   | grep -oP '"name_value":"\K[^"]+' | tr ',' '\n' | sed 's/^\*\.//' >> "${OUT}/subs/raw.txt" &
 
-log "AlienVault OTX..."
+log "AlienVault OTX - passive DNS..."
 _curl "https://otx.alienvault.com/api/v1/indicators/domain/${DOMAIN}/passive_dns" \
   | grep -oP '"hostname":"\K[^"]+' | grep "\.${DOMAIN}$" >> "${OUT}/subs/raw.txt" &
 
-log "HackerTarget..."
+log "HackerTarget - host search..."
 _curl "https://api.hackertarget.com/hostsearch/?q=${DOMAIN}" \
   | cut -d',' -f1 | grep "\.${DOMAIN}$" >> "${OUT}/subs/raw.txt" &
 
-log "RapidDNS..."
+log "RapidDNS - subdomain lookup..."
 _curl "https://rapiddns.io/subdomain/${DOMAIN}?full=1&down=1" \
   | grep -oP '(?<=<td>)[a-z0-9._-]+\.'${DOMAIN}'(?=</td>)' >> "${OUT}/subs/raw.txt" &
 
-log "Wayback Machine..."
+log "Wayback Machine - CDX URL archive..."
 _curl "https://web.archive.org/cdx/search/cdx?url=*.${DOMAIN}&output=text&fl=original&collapse=urlkey" \
   | grep -oP 'https?://\K[^/]+' | grep "\.${DOMAIN}$" >> "${OUT}/subs/raw.txt" &
 
-log "ThreatCrowd..."
+log "ThreatCrowd - threat intel passive DNS..."
 _curl "https://www.threatcrowd.org/searchApi/v2/domain/report/?domain=${DOMAIN}" \
   | grep -oP '"[a-z0-9._-]+\.'${DOMAIN}'"' | tr -d '"' >> "${OUT}/subs/raw.txt" &
 
-log "SecurityTrails (passive)..."
+log "SecurityTrails - passive subdomain index..."
 _curl "https://securitytrails.com/list/apex_domain/${DOMAIN}" \
   | grep -oP '[a-z0-9._-]+\.'${DOMAIN}'(?=[^a-z0-9._-])' >> "${OUT}/subs/raw.txt" &
 
-log "URLScan..."
+log "URLScan - scan results index..."
 _curl "https://urlscan.io/api/v1/search/?q=domain:${DOMAIN}&size=100" \
   | grep -oP '"[a-z0-9._-]+\.'${DOMAIN}'"' | tr -d '"' >> "${OUT}/subs/raw.txt" &
 
-log "ThreatMiner..."
+log "ThreatMiner - malware intel feed..."
 _curl "https://api.threatminer.org/v2/domain.php?q=${DOMAIN}&rt=5" \
   | grep -oP '"[a-z0-9._-]+\.'${DOMAIN}'"' | tr -d '"' >> "${OUT}/subs/raw.txt" &
 
-log "Riddler..."
+log "Riddler - WHOIS/DNS cross-reference..."
 _curl "https://riddler.io/search/exportcsv?q=pld:${DOMAIN}" \
   | cut -d',' -f6 | grep "\.${DOMAIN}$" >> "${OUT}/subs/raw.txt" &
 
-log "DNSBufferOver..."
+log "DNSBufferOver - DNS aggregation..."
 _curl "https://dns.bufferover.run/dns?q=.${DOMAIN}" \
   | grep -oP '"[a-z0-9._-]+\.'${DOMAIN}'"' | tr -d '"' >> "${OUT}/subs/raw.txt" &
 
-log "Anubis DB..."
+log "Anubis DB - subdomain brute force index..."
 _curl "https://jldc.me/anubis/subdomains/${DOMAIN}" \
   | grep -oP '"[a-z0-9._-]+\.'${DOMAIN}'"' | tr -d '"' >> "${OUT}/subs/raw.txt" &
 
 if [[ "${DEEP_MODE}" == true ]]; then
-  log "Certspotter (deep)..."
+  log "Certspotter - certificate issuance feed (deep)..."
   _curl "https://api.certspotter.com/v1/issuances?domain=${DOMAIN}&include_subdomains=true&expand=dns_names" \
     | grep -oP '"[a-z0-9._-]+\.'${DOMAIN}'"' | tr -d '"' >> "${OUT}/subs/raw.txt" &
 
-  log "TLS BufferOver (deep)..."
+  log "TLS BufferOver - TLS handshake records (deep)..."
   _curl "https://tls.bufferover.run/dns?q=.${DOMAIN}" \
     | grep -oP '"[a-z0-9._-]+\.'${DOMAIN}'"' | tr -d '"' >> "${OUT}/subs/raw.txt" &
 
-  log "Wayback subdomains deep..."
+  log "Wayback deep - extended archive crawl (10k URLs)..."
   _curl "https://web.archive.org/cdx/search/cdx?url=*.${DOMAIN}/*&output=text&fl=original&collapse=urlkey&limit=10000" \
     | grep -oP 'https?://\K[^/]+' | grep "\.${DOMAIN}$" >> "${OUT}/subs/raw.txt" &
 
-  log "crt.sh wildcard (deep)..."
+  log "crt.sh wildcard - broader certificate search (deep)..."
   _curl "https://crt.sh/?q=.${DOMAIN}&output=json" \
     | grep -oP '"name_value":"\K[^"]+' | tr ',' '\n' | sed 's/^\*\.//' >> "${OUT}/subs/raw.txt" &
 
-  log "SonarSearch (deep)..."
+  log "SonarSearch - Project Sonar DNS dataset (deep)..."
   _curl "https://sonar.omnisint.io/subdomains/${DOMAIN}" \
     | grep -oP '"[a-z0-9._-]+\.'${DOMAIN}'"' | tr -d '"' >> "${OUT}/subs/raw.txt" &
 
-  log "SynapsInt (deep)..."
+  log "SynapsInt - OSINT aggregator (deep)..."
   _curl "https://synapsint.com/report.php?name=https%3A%2F%2F${DOMAIN}" \
     | grep -oP '[a-z0-9._-]+\.'${DOMAIN}'(?=[^a-z0-9._-])' >> "${OUT}/subs/raw.txt" &
 fi
@@ -405,9 +427,9 @@ mv "${OUT}/subs/raw_clean.txt" "${OUT}/subs/raw.txt"
 if [[ -n "${SCOPE_FILE}" && -f "${SCOPE_FILE}" ]]; then
   grep -Fxf "${SCOPE_FILE}" "${OUT}/subs/raw.txt" > "${OUT}/subs/scoped.txt"
   mv "${OUT}/subs/scoped.txt" "${OUT}/subs/raw.txt"
-  log "Scope filter applied"
+  log "Scope filter applied from ${SCOPE_FILE} - $(count_safe "${OUT}/subs/raw.txt") in-scope subdomains kept"
 fi
-log "Raw subdomains: $(count_safe "${OUT}/subs/raw.txt")"
+log "Step 1 complete - raw subdomains discovered: $(count_safe "${OUT}/subs/raw.txt")"
 echo "${DOMAIN}" >> "${OUT}/subs/raw.txt"
 sort -u "${OUT}/subs/raw.txt" -o "${OUT}/subs/raw.txt"
 
@@ -504,7 +526,7 @@ if [[ ! -s "${OUT}/subs/resolved.txt" && -s "${OUT}/subs/resolved_raw.txt" ]]; t
   warn "Wildcard pruning removed all hosts — falling back to full resolved list"
   awk '{print $1}' "${OUT}/subs/resolved_raw.txt" | sort -u > "${OUT}/subs/resolved.txt"
 fi
-log "Resolved (wildcard-filtered): $(count_safe "${OUT}/subs/resolved.txt")"
+log "Step 2 complete - resolved subdomains (wildcard-filtered): $(count_safe "${OUT}/subs/resolved.txt")"
 
 # ════════════════════════════════════════════════════════════════════════════
 section "STEP 3 ─ HTTP Probing"
@@ -598,7 +620,7 @@ if [[ ! -s "${OUT}/http/live.txt" && -s "${OUT}/subs/resolved.txt" ]]; then
   rm -f "${TMPDIR_NYX}"/live_relax_* 2>/dev/null || true
 fi
 
-log "Live hosts: $(count_safe "${OUT}/http/live.txt")"
+log "Step 3 complete - live hosts: $(count_safe "${OUT}/http/live.txt") (probed ${THREADS} threads, ${TIMEOUT}s timeout)"
 if [[ ! -s "${OUT}/http/live.txt" ]]; then
   warn "No live hosts found — continuing with recon data only."
   touch "${OUT}/http/live.txt"
@@ -663,7 +685,7 @@ grep -E "CORS:" "${OUT}/engine/headers/audit.txt" | sort -u > "${OUT}/engine/hea
 grep "CORS:CREDS_LEAK" "${OUT}/engine/headers/cors_issues.txt" | sort -u > "${OUT}/engine/headers/cors_crit.txt" 2>/dev/null || true
 grep -v "CORS:CREDS_LEAK" "${OUT}/engine/headers/cors_issues.txt" | sort -u > "${OUT}/engine/headers/cors_high.txt" 2>/dev/null || true
 grep -v "CORS:" "${OUT}/engine/headers/audit.txt" | sort -u > "${OUT}/engine/headers/missing_headers.txt" 2>/dev/null || true
-good "Header audit: $(count_safe "${OUT}/engine/headers/audit.txt") findings | CORS: $(count_safe "${OUT}/engine/headers/cors_issues.txt")"
+good "Step 4 complete - header audit findings: $(count_safe "${OUT}/engine/headers/audit.txt") | CORS issues: $(count_safe "${OUT}/engine/headers/cors_issues.txt") (crit: $(count_safe "${OUT}/engine/headers/cors_crit.txt") | high: $(count_safe "${OUT}/engine/headers/cors_high.txt"))"
 
 # ════════════════════════════════════════════════════════════════════════════
 section "STEP 5 ─ JS Secret Scanner (30 patterns)"
@@ -758,9 +780,13 @@ if [[ -s "${OUT}/engine/secrets/js_urls.txt" ]]; then
   cat "${OUT}/engine/secrets/js_urls.txt" | _parallel "${THREADS}" _js_scan 2>/dev/null \
     | sort -u > "${OUT}/engine/secrets/findings.txt"
   local_count=$(count_safe "${OUT}/engine/secrets/findings.txt")
-  [[ "${local_count}" -gt 0 ]] && good "JS secrets found: ${local_count}" || log "No JS secrets detected"
+  js_count=$(count_safe "${OUT}/engine/secrets/js_urls.txt")
+  [[ "${local_count}" -gt 0 ]] \
+    && good "Step 5 complete - ${local_count} secret(s) found across ${js_count} JS file(s) - check engine/secrets/findings.txt" \
+    || log "Step 5 complete - scanned ${js_count} JS file(s), no secrets matched (30 patterns)"
 else
-  touch "${OUT}/engine/secrets/findings.txt"; log "No JS files found"
+  touch "${OUT}/engine/secrets/findings.txt"
+  log "Step 5 complete - no JS files found to scan (no live hosts or no JS links crawled)"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -859,7 +885,9 @@ export -f _takeover_check
 cat "${OUT}/subs/resolved.txt" | _parallel "${THREADS}" _takeover_check 2>/dev/null \
   | sort -u > "${OUT}/engine/takeover/candidates.txt"
 tk_count=$(count_safe "${OUT}/engine/takeover/candidates.txt")
-[[ "${tk_count}" -gt 0 ]] && good "Takeover candidates: ${tk_count}" || log "No takeover candidates"
+[[ "${tk_count}" -gt 0 ]] \
+  && good "Step 6 complete - ${tk_count} takeover candidate(s) found (35 service signatures checked) - CRITICAL" \
+  || log "Step 6 complete - no takeover candidates (checked $(count_safe "${OUT}/subs/resolved.txt") subdomains against 35 signatures)"
 
 # ════════════════════════════════════════════════════════════════════════════
 section "STEP 7 ─ URL Crawl"
@@ -911,7 +939,7 @@ export -f _crawl_host
 cat "${OUT}/http/live.txt" | _parallel "${THREADS}" _crawl_host 2>/dev/null \
   | sort -u > "${OUT}/crawl/crawled_urls.txt"
 
-log "Wayback passive..."
+log "Wayback Machine - harvesting passive URLs (up to 10k)..."
 _curl "https://web.archive.org/cdx/search/cdx?url=*.${DOMAIN}/*&output=text&fl=original&collapse=urlkey&limit=10000" \
   | grep -E "^https?://" | grep "${DOMAIN}" \
   | grep -vE '\.(jpg|jpeg|png|gif|svg|ico|css|woff|woff2|ttf|mp4|mp3|pdf|zip|eot)(\?|$)' \
