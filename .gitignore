@@ -1,15 +1,49 @@
-# Nyxora scan output directories
+# ── Nyxora scan output directories ──────────────────────────────────────────
 nyxora-*/
 
-# Editor
+# ── Temp / runtime files ─────────────────────────────────────────────────────
+# Per-scan temp files created by mktemp during execution
+/tmp/nyxora_*
+/tmp/nyx_*
+
+# AUTH_HEADERS_FILE and other exported temp arrays
+*.tmp
+
+# ── Auth / sensitive data ─────────────────────────────────────────────────────
+# Never commit credentials — use --cookie / --header / --proxy at runtime
+*.cookie
+*.token
+*.env
+.env
+.env.*
+
+# ── Scope files (may contain private program data) ───────────────────────────
+# Comment out if you want to version-control your scope list
+in_scope.txt
+scope*.txt
+*.scope
+
+# ── Proxy / Burp configs ─────────────────────────────────────────────────────
+burp_state*.json
+*.burp
+
+# ── Output artefacts ─────────────────────────────────────────────────────────
+*.log
+logs/
+final/
+subs/
+http/
+crawl/
+engine/
+
+# ── Editor ───────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *~
+*.orig
 
-# OS
+# ── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
+desktop.ini

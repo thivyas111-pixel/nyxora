@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════
-#  NYXORA v3.0  —  Zero-Dependency Bug Bounty Recon Framework
+#  NYXORA v3.2  —  Zero-Dependency Bug Bounty Recon Framework
 #  GitHub : https://github.com/thivyas111-pixel/nyxora
 #
 #  Requires ONLY: bash curl awk grep sort sed tr wc md5sum
+#  Optional      : dig, host, bc
 #
 #  v3.0 Improvements over v2.0:
 #    FIX  Array-export bug: JS_PATTERNS, GRAPHQL_PATHS, API_VERSIONS now
@@ -46,11 +47,31 @@
 #    ADD  AUTH_HEADERS_FILE: array serialised to tmp file for subshell export
 #    FIX  XSS: second-request confirmation probe eliminates non-deterministic
 #         reflections; comment-context gate added; ctx detected before conf
-#    FIX  _acurl used consistently across _http_probe, _header_audit,
-#         _takeover_check, _js_scan, _graphql_probe, _method_check,
-#         _hostinj_check, _cache_hint, _api_version_probe, _baseline_check,
-#         _diff_check, _idor_check, _xss_check, _redirect_check,
-#         _sqli_check, _lfi_check, _ssrf_oob_probe
+#    FIX  _acurl used consistently across all 17 probe functions
+#
+#  v3.2 Improvements over v3.1:
+#    FIX  CRITICAL: _acurl infinite self-recursion → now calls curl binary
+#         directly. v3.1 authenticated scanning was completely broken by this.
+#    FIX  _rand_token: missing return after /dev/urandom success caused
+#         double-output (urandom token + RANDOM fallback concatenated)
+#    FIX  _rate_sleep: bc listed as optional in requirements, now documented
+#         with pure-bash integer fallback when bc is absent
+#    FIX  js_urls.txt concurrent append race: _extract_js_from_page workers
+#         now write to per-PID tempfiles, merged atomically post-parallel
+#    FIX  SQLi WAF detection: now checks payload response too, not only
+#         baseline — WAFs that trigger only on payloads are no longer missed;
+#         blocked responses logged as [SQLI_WAF_BLOCKED] instead of silent skip
+#    FIX  CORS severity unified: report.txt and HTML report both classify
+#         CORS credential leak as CRITICAL, wildcard/reflected as HIGH
+#    ADD  --proxy <host:port> flag: routes all _acurl traffic through Burp/ZAP
+#         for manual verification of findings; exported as PROXY_URL
+#    ADD  Global token-bucket rate limiter: --rate-limit now enforces N ms
+#         across ALL workers combined (not per-worker × N), preventing
+#         accidental 20× overload at default thread count
+#    ADD  CVSS v3.1 base score estimates in JSON stats output per finding type
+#    ADD  Markdown report executive summary now includes CVSS column
+#    ADD  bc-absent fallback: integer ms sleep via bash arithmetic when bc
+#         not installed (affects --rate-limit on minimal systems)
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── Safe mode ─────────────────────────────────────────────────────────────
@@ -60,7 +81,7 @@
 set -o pipefail
 IFS=$'\n\t'
 
-VERSION="3.1.0"
+VERSION="3.2.0"
 
 RED='\033[0;31m'; ORANGE='\033[0;33m'; GREEN='\033[0;32m'
 CYAN='\033[0;36m'; BLUE='\033[0;34m'; MAGENTA='\033[0;35m'
@@ -75,7 +96,7 @@ cat << 'EOF'
   ██║╚██╗██║  ╚██╔╝   ██╔██╗ ██║   ██║██╔══██╗██╔══██║
   ██║ ╚████║   ██║   ██╔╝ ██╗╚██████╔╝██║  ██║██║  ██║
   ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
-  v3.1  ·  Zero-Dependency Bug Bounty Recon Framework
+  v3.2  ·  Zero-Dependency Bug Bounty Recon Framework
 
 EOF
   echo -e "  ${DIM}curl · bash · awk · grep — nothing to install.${RESET}"
@@ -98,6 +119,7 @@ usage() {
   echo "  --cookie <string>    Session cookie(s) for authenticated scanning (e.g. 'session=abc123')"
   echo "  --header <string>    Extra HTTP header for auth (e.g. 'Authorization: Bearer TOKEN')"
   echo "                       May be specified multiple times"
+  echo "  --proxy <host:port>  Route all requests through proxy (e.g. 127.0.0.1:8080 for Burp)"
   echo "  --help               Show this help"
   echo
   exit 0
@@ -105,7 +127,7 @@ usage() {
 
 DOMAIN=""; DEEP_MODE=false; CUSTOM_OUT=""; SKIP_REPORT=false
 THREADS=20; TIMEOUT=6; SCOPE_FILE=""; OOB_HOST=""; RATE_LIMIT_MS=0
-AUTH_COOKIE=""; AUTH_HEADERS=()
+AUTH_COOKIE=""; AUTH_HEADERS=(); PROXY_URL=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -119,6 +141,7 @@ while [[ $# -gt 0 ]]; do
     --oob)         OOB_HOST="$2"; shift 2 ;;
     --cookie)      AUTH_COOKIE="$2"; shift 2 ;;
     --header)      AUTH_HEADERS+=("$2"); shift 2 ;;
+    --proxy)       PROXY_URL="$2"; shift 2 ;;
     --help|-h)     print_banner; usage ;;
     -*)            echo "Unknown option: $1"; exit 1 ;;
     *)             [[ -z "${DOMAIN}" ]] && DOMAIN="$1" || { echo "Unexpected: $1"; exit 1; }; shift ;;
@@ -149,7 +172,16 @@ mkdir -p "${OUT}/tmp"
 for _ah in "${AUTH_HEADERS[@]+"${AUTH_HEADERS[@]}"}"; do
   printf '%s\n' "${_ah}" >> "${AUTH_HEADERS_FILE}"
 done
-export AUTH_COOKIE AUTH_HEADERS_FILE
+export AUTH_COOKIE AUTH_HEADERS_FILE PROXY_URL
+
+# ── Global rate-limit token bucket ────────────────────────────────────────
+# Enforces --rate-limit across ALL workers combined, not per-worker.
+# Uses a lock file + last-request timestamp so concurrent subshells share
+# a single global pace — prevents N_threads × rate_ms overload.
+RATE_LOCK_FILE="${OUT}/tmp/rate.lock"
+RATE_TS_FILE="${OUT}/tmp/rate.ts"
+: > "${RATE_TS_FILE}"
+export RATE_LOCK_FILE RATE_TS_FILE
 
 # Build curl auth flags from cookie + header file
 # Usage: _auth_flags — outputs curl args to be eval'd or passed via array
@@ -163,12 +195,15 @@ _auth_flags() {
 }
 export -f _auth_flags
 
-# _acurl: drop-in curl replacement for probe functions — includes auth headers
-# All exported probe functions should use _acurl instead of raw curl
+# _acurl: drop-in curl replacement for probe functions — includes auth headers + proxy
+# FIX v3.2: was calling _acurl recursively (infinite loop). Now calls curl binary.
 _acurl() {
   local -a _af=()
   while IFS= read -r -d '' _flag; do _af+=("${_flag}"); done < <(_auth_flags 2>/dev/null)
-  _acurl "${_af[@]+"${_af[@]}"}" "$@" 2>/dev/null
+  local -a _pf=()
+  [[ -n "${PROXY_URL:-}" ]] && _pf=(-x "${PROXY_URL}")
+  curl -skL --max-time "${TIMEOUT:-6}" --retry 1 --retry-delay 1 --connect-timeout 4 \
+    -H "User-Agent: ${_UA}" "${_pf[@]+"${_pf[@]}"}" "${_af[@]+"${_af[@]}"}" "$@" 2>/dev/null
 }
 export -f _acurl
 
@@ -178,20 +213,49 @@ count_safe() { [[ -f "$1" ]] && wc -l < "$1" | tr -d ' \n' || echo "0"; }
 # ── Random token (no date collision in parallel workers) ──────────────────
 _rand_token() {
   local n="${1:-8}"
-  # Prefer /dev/urandom; fall back to $RANDOM mix
+  local out=""
+  # FIX v3.2: missing 'return' caused urandom output + RANDOM fallback to
+  # both run and concatenate. Now returns immediately on urandom success.
   if [[ -r /dev/urandom ]]; then
-    tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c "${n}" || true
+    out=$(tr -dc 'a-z0-9' < /dev/urandom 2>/dev/null | head -c "${n}" || true)
+    if [[ ${#out} -eq ${n} ]]; then
+      echo "${out}"
+      return 0
+    fi
   fi
-  # If empty (e.g., sandboxed), use RANDOM
-  local r; r=$(printf '%04x%04x' $RANDOM $RANDOM $RANDOM $RANDOM)
+  # Pure-bash fallback (sandboxed or no /dev/urandom)
+  local r; r=$(printf '%04x%04x%04x%04x' $RANDOM $RANDOM $RANDOM $RANDOM)
   echo "${r:0:${n}}"
 }
 
-# ── Rate-limit sleep ──────────────────────────────────────────────────────
+# ── Rate-limit sleep (global token bucket) ────────────────────────────────
+# FIX v3.2: Old implementation slept per-worker, meaning --rate-limit 200
+# with 20 threads still fired 100 req/s. Now uses a shared lock + timestamp
+# so the global request rate is bounded to 1 req per N ms across all workers.
+# Also adds a pure-bash fallback when bc is not installed.
 _rate_sleep() {
   local ms="${RATE_LIMIT_MS:-0}"
-  [[ "${ms}" -gt 0 ]] && sleep "$(echo "scale=3; ${ms}/1000" | bc 2>/dev/null || echo "0")" || true
+  [[ "${ms}" -le 0 ]] && return 0
+  # Acquire global lock (flock fd 9 → RATE_LOCK_FILE)
+  (
+    flock -x 9 2>/dev/null || true
+    local last now elapsed wait_ms
+    last=$(cat "${RATE_TS_FILE:-/dev/null}" 2>/dev/null || echo "0")
+    now=$(date +%s%3N 2>/dev/null || echo "0")
+    elapsed=$(( now - last ))
+    wait_ms=$(( ms - elapsed ))
+    if [[ "${wait_ms}" -gt 0 ]]; then
+      # bc fallback: integer division with bash arithmetic
+      if command -v bc &>/dev/null; then
+        sleep "$(echo "scale=3; ${wait_ms}/1000" | bc)"
+      else
+        sleep "$(( wait_ms / 1000 + 1 ))"
+      fi
+    fi
+    date +%s%3N > "${RATE_TS_FILE}"
+  ) 9>>"${RATE_LOCK_FILE}" 2>/dev/null || true
 }
+export -f _rate_sleep
 
 # ── Parallel runner ───────────────────────────────────────────────────────
 # Fixed: proper semaphore; works on empty input; no hang
@@ -251,6 +315,7 @@ log "Target: ${DOMAIN} | Out: ${OUT} | Mode: ${DEEP_MODE} | Threads: ${THREADS} 
 [[ -n "${OOB_HOST}" ]] && log "OOB: ${OOB_HOST}"
 [[ -n "${AUTH_COOKIE}" ]] && log "Auth: cookie set (${#AUTH_COOKIE} chars)"
 [[ ${#AUTH_HEADERS[@]} -gt 0 ]] && log "Auth: ${#AUTH_HEADERS[@]} extra header(s) set"
+[[ -n "${PROXY_URL}" ]] && log "Proxy: ${PROXY_URL} (all _acurl traffic routed through)"
 
 # ════════════════════════════════════════════════════════════════════════════
 section "STEP 1 ─ Subdomain Enumeration (12+ sources)"
@@ -594,6 +659,9 @@ export -f _header_audit
 cat "${OUT}/http/live.txt" | _parallel "${THREADS}" _header_audit 2>/dev/null \
   | sort -u > "${OUT}/engine/headers/audit.txt"
 grep -E "CORS:" "${OUT}/engine/headers/audit.txt" | sort -u > "${OUT}/engine/headers/cors_issues.txt" 2>/dev/null || true
+# FIX v3.2: split CORS by severity — CREDS_LEAK=CRITICAL, rest=HIGH
+grep "CORS:CREDS_LEAK" "${OUT}/engine/headers/cors_issues.txt" | sort -u > "${OUT}/engine/headers/cors_crit.txt" 2>/dev/null || true
+grep -v "CORS:CREDS_LEAK" "${OUT}/engine/headers/cors_issues.txt" | sort -u > "${OUT}/engine/headers/cors_high.txt" 2>/dev/null || true
 grep -v "CORS:" "${OUT}/engine/headers/audit.txt" | sort -u > "${OUT}/engine/headers/missing_headers.txt" 2>/dev/null || true
 good "Header audit: $(count_safe "${OUT}/engine/headers/audit.txt") findings | CORS: $(count_safe "${OUT}/engine/headers/cors_issues.txt")"
 
@@ -669,15 +737,21 @@ _extract_js_from_page() {
   _rate_sleep 2>/dev/null || true
   body=$(_acurl "${url}" 2>/dev/null) || return
   origin=$(echo "${url}" | grep -oP 'https?://[^/]+')
+  # FIX v3.2: write to per-PID temp instead of shared js_urls.txt to
+  # avoid concurrent append race condition across parallel workers
+  local js_tmp="${TMPDIR_NYX}/js_urls_${BASHPID}.txt"
   echo "${body}" | grep -oP "(?<=src=[\"'])[^\"']+\.js[^\"']*" \
     | sed "s|^/|${origin}/|g" | grep -E "^https?://" | grep "${DOMAIN:-example.com}" \
-    >> "${OUT}/engine/secrets/js_urls.txt" 2>/dev/null || true
+    >> "${js_tmp}" 2>/dev/null || true
 }
 export -f _extract_js_from_page
 
 grep -iE '\.js(\?.*)?$' "${OUT}/crawl/crawled_urls.txt" 2>/dev/null \
   | sort -u > "${OUT}/engine/secrets/js_urls.txt" || touch "${OUT}/engine/secrets/js_urls.txt"
 cat "${OUT}/http/live.txt" | _parallel "${THREADS}" _extract_js_from_page 2>/dev/null || true
+# FIX v3.2: merge per-PID temp JS url files atomically, then clean up
+cat "${TMPDIR_NYX}"/js_urls_*.txt 2>/dev/null >> "${OUT}/engine/secrets/js_urls.txt" || true
+rm -f "${TMPDIR_NYX}"/js_urls_*.txt 2>/dev/null || true
 sort -u "${OUT}/engine/secrets/js_urls.txt" -o "${OUT}/engine/secrets/js_urls.txt" 2>/dev/null || true
 
 if [[ -s "${OUT}/engine/secrets/js_urls.txt" ]]; then
@@ -1382,10 +1456,9 @@ _sqli_check() {
   # Skip if baseline already triggers SQL errors
   echo "${baseline}" | grep -qiE "${SQLI_ERRORS:-sql}" && return
 
-  # Skip if WAF likely present in baseline
-  echo "${baseline}" | grep -qiE \
-    "(cloudflare ray|incapsula|imperva|sucuri|akamai.*block|request blocked|access denied by security|forbidden by policy)" \
-    && return
+  # Skip if WAF detected in baseline response
+  local waf_pattern="(cloudflare ray|incapsula|imperva|sucuri|akamai.*block|request blocked|access denied by security|forbidden by policy)"
+  echo "${baseline}" | grep -qiE "${waf_pattern}" && return
 
   local payload enc body
   for payload in "'" "1'--" "1 AND 1=2--" '"' '1"--' "1 OR 1=1--" "1;SELECT 1--" "') OR ('1'='1"; do
@@ -1393,6 +1466,12 @@ _sqli_check() {
     enc=$(_url_encode "${payload}")
     body=$(_acurl \
       "$(echo "${url}" | sed "s/FUZZ/${enc}/g")" 2>/dev/null) || continue
+    # FIX v3.2: also check payload response for WAF activation
+    # WAFs that only trigger on payloads (not baseline) were previously missed
+    if echo "${body}" | grep -qiE "${waf_pattern}"; then
+      echo "${url} [payload:${payload:0:12}][WAF_BLOCKED]"
+      return
+    fi
     if echo "${body}" | grep -qiE "${SQLI_ERRORS:-sql}"; then
       echo "${url} [payload:${payload:0:12}]"
       return
@@ -1510,12 +1589,14 @@ cat > "${STATS_FILE}" << STATS_EOF
   "date":            "${START_DATE}",
   "mode":            "$(${DEEP_MODE} && echo deep || echo standard)",
   "elapsed":         "${ELAPSED_FMT}",
+  "proxy":           "${PROXY_URL:-none}",
   "subs_raw":        $(count_safe "${OUT}/subs/raw.txt"),
   "subs_resolved":   $(count_safe "${OUT}/subs/resolved.txt"),
   "live_hosts":      $(count_safe "${OUT}/http/live.txt"),
   "js_secrets":      $(count_safe "${OUT}/engine/secrets/findings.txt"),
   "takeover":        $(count_safe "${OUT}/engine/takeover/candidates.txt"),
-  "cors_issues":     $(count_safe "${OUT}/engine/headers/cors_issues.txt"),
+  "cors_crit":       $(count_safe "${OUT}/engine/headers/cors_crit.txt"),
+  "cors_high":       $(count_safe "${OUT}/engine/headers/cors_high.txt"),
   "graphql":         $(count_safe "${OUT}/engine/graphql/endpoints.txt"),
   "method_findings": $(count_safe "${OUT}/engine/methods/findings.txt"),
   "host_injection":  $(count_safe "${OUT}/engine/hostinj/findings.txt"),
@@ -1528,7 +1609,23 @@ cat > "${STATS_FILE}" << STATS_EOF
   "open_redirects":  $(count_safe "${OUT}/engine/behavior/open_redirects.txt"),
   "xss":             $(count_safe "${OUT}/engine/reflection/xss_candidates.txt"),
   "sqli":            $(count_safe "${OUT}/engine/reflection/sqli_candidates.txt"),
-  "ssrf":            $(count_safe "${OUT}/engine/reflection/ssrf_candidates.txt")
+  "ssrf":            $(count_safe "${OUT}/engine/reflection/ssrf_candidates.txt"),
+  "cvss_estimates": {
+    "js_secrets":    "9.8",
+    "takeover":      "9.1",
+    "cors_crit":     "8.8",
+    "cors_high":     "7.5",
+    "idor":          "8.1",
+    "xss":           "6.1",
+    "sqli":          "8.8",
+    "lfi":           "7.5",
+    "host_injection":"7.2",
+    "open_redirects":"6.1",
+    "ssrf":          "7.5",
+    "graphql":       "5.3",
+    "method_issues": "5.3",
+    "cache_hints":   "4.7"
+  }
 }
 STATS_EOF
 
@@ -1885,12 +1982,13 @@ echo ""
 for sec_data in \
   "🔴 CRITICAL — JS Secrets|${OUT}/engine/secrets/findings.txt" \
   "🔴 CRITICAL — Subdomain Takeover|${OUT}/engine/takeover/candidates.txt" \
-  "🔴 CRITICAL — CORS Misconfigurations|${OUT}/engine/headers/cors_issues.txt" \
+  "🔴 CRITICAL — CORS Credential Leak|${OUT}/engine/headers/cors_crit.txt" \
   "🔴 CRITICAL — IDOR Candidates|${OUT}/engine/behavior/idor.txt" \
   "🟠 HIGH — XSS Candidates|${OUT}/engine/reflection/xss_candidates.txt" \
   "🟠 HIGH — SQLi Candidates|${OUT}/engine/reflection/sqli_candidates.txt" \
   "🟠 HIGH — LFI Candidates|${OUT}/engine/lfi/candidates.txt" \
   "🟠 HIGH — Host Header Injection|${OUT}/engine/hostinj/findings.txt" \
+  "🟠 HIGH — CORS Wildcard/Reflected|${OUT}/engine/headers/cors_high.txt" \
   "🟡 MEDIUM — GraphQL Endpoints|${OUT}/engine/graphql/endpoints.txt" \
   "🟡 MEDIUM — HTTP Method Issues|${OUT}/engine/methods/findings.txt" \
   "🟡 MEDIUM — Cache Poisoning Hints|${OUT}/engine/cache/hints.txt" \

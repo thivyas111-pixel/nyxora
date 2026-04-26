@@ -9,11 +9,11 @@
   ╚═╝  ╚═══╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
 ```
 
-**v3.1 · Zero-Dependency Bug Bounty Recon Framework**
+**v3.2 · Zero-Dependency Bug Bounty Recon Framework**
 
 [![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-blue)](#requirements)
-[![Version](https://img.shields.io/badge/Version-3.1.0-red)](https://github.com/thivyas111-pixel/nyxora)
+[![Version](https://img.shields.io/badge/Version-3.2.0-red)](https://github.com/thivyas111-pixel/nyxora)
 
 *curl · bash · awk · grep*
 
@@ -25,7 +25,7 @@
 
 **Nyxora** is a fully self-contained bug bounty recon framework written in pure Bash. It performs comprehensive reconnaissance on a target domain — from subdomain discovery through active vulnerability scanning — using only tools that ship with every standard Linux system. No Python, no Go binaries, no pip packages: just `curl`, `bash`, `awk`, `grep`, `sort`, `sed`, `tr`, `wc`, and `md5sum`.
 
-v3.1 adds **authenticated scanning** via `--cookie` and `--header` flags, meaning every probe function now carries your session credentials — unlocking targets behind login walls. It also tightens XSS detection with a second-request confirmation probe and HTML comment context gate to cut false positives.
+v3.2 is a stability and correctness release. It fixes a critical `_acurl` infinite self-recursion bug that broke all authenticated scanning in v3.1, adds a `--proxy` flag for routing traffic through Burp/ZAP, introduces a global token-bucket rate limiter, and adds CVSS v3.1 base score estimates to JSON and Markdown reports.
 
 ---
 
@@ -65,7 +65,10 @@ bash nyxora.sh example.com \
   --header "Authorization: Bearer TOKEN" \
   --header "X-API-Key: mykey"
 
-# Throttled scan, 200ms between requests per worker
+# Route all traffic through Burp Suite / ZAP for manual verification
+bash nyxora.sh example.com --proxy 127.0.0.1:8080
+
+# Throttled scan — global 200ms token bucket across ALL workers
 bash nyxora.sh example.com --rate-limit 200
 
 # OOB SSRF confirmation
@@ -94,11 +97,12 @@ bash nyxora.sh example.com --no-report
 | `--no-report` | off | Skip HTML report generation |
 | `--threads <n>` | `20` | Parallel worker count |
 | `--timeout <n>` | `6` | Per-request timeout in seconds |
-| `--rate-limit <ms>` | `0` | Sleep (ms) between requests per worker |
+| `--rate-limit <ms>` | `0` | Global token-bucket sleep (ms) across ALL workers combined |
 | `--scope-file <file>` | none | Only test subdomains listed in file (one per line) |
 | `--oob <host>` | none | OOB callback host for blind SSRF probes |
 | `--cookie <string>` | none | Session cookie(s) for authenticated scanning |
 | `--header <string>` | none | Extra auth header — repeat once per header |
+| `--proxy <host:port>` | none | Route all `_acurl` traffic through Burp/ZAP (e.g. `127.0.0.1:8080`) |
 | `--help` | — | Show usage and exit |
 
 ---
@@ -114,14 +118,14 @@ bash nyxora.sh example.com --no-report
 
 ### Vulnerability Scanning
 
-All 17 probe functions carry your `--cookie` / `--header` credentials on every request.
+All 17 probe functions carry `--cookie`, `--header`, and `--proxy` credentials on every request via the `_acurl` helper.
 
 - **JS Secret Scanner** — 30 patterns: AWS, Google, Firebase, Slack, GitHub, Stripe, Twilio, Heroku, SendGrid, Mailchimp, Mailgun, PayPal/Braintree, Square, DigitalOcean, Shopify, Okta, JWT, private keys, generic secrets. Skips CDN/analytics noise.
 - **Subdomain Takeover** — 35 service fingerprints (Heroku, GitHub Pages, Azure, Fastly, Shopify, AWS S3, Tumblr, Bitbucket, Ghost, Netlify, Vercel, Webflow, Zendesk, Intercom, Surge, Cargo, Ngrok, WP Engine, Wix, UserVoice, GitLab Pages, Pantheon, AgileCRM, ReadMe.io, and more) plus CNAME-dangling detection.
 - **Security Header Audit** — Missing HSTS, X-Frame-Options, X-Content-Type-Options, CSP, Referrer-Policy, Permissions-Policy, COOP. Insecure cookie flags. Server version disclosure.
 - **CORS Misconfiguration** — Wildcard, reflected origin, null-origin, and credential-leaking CORS. Standard + pre-flight OPTIONS probes.
 - **XSS Detection** — Random-byte canary, three encoding gates (HTML entities, URL, Unicode), HTML comment context gate, second-request confirmation probe (eliminates non-deterministic reflections), context classification (`html` / `attr` / `script`), CSP nonce/hash confidence downgrade.
-- **SQL Injection** — 8 payloads, 20 error signatures across MySQL, PostgreSQL, Oracle, SQLite, MSSQL, JDBC, PDO, ActiveRecord. WAF pre-detection to skip blocked targets.
+- **SQL Injection** — 8 payloads, 20 error signatures across MySQL, PostgreSQL, Oracle, SQLite, MSSQL, JDBC, PDO, ActiveRecord. WAF pre-detection — blocked responses logged as `[SQLI_WAF_BLOCKED]` instead of silently skipped.
 - **LFI / Path Traversal** — 8 payloads including null-byte, double-encoding, `php://filter`. Pre-filtered to file/path/template/include parameters.
 - **Host Header Injection** — 7 injection headers. Body reflection and redirect-chain confirmation.
 - **Open Redirect** — Keyword-filtered parameters, three payload schemes (`https://`, `http://`, `//`), follows up to 5 hops.
@@ -138,9 +142,9 @@ All 17 probe functions carry your `--cookie` / `--header` credentials on every r
 | Format | Path | Description |
 |--------|------|-------------|
 | **HTML** | `final/report.html` | Interactive, filterable, paginated tables with severity badges |
-| **Markdown** | `final/report.md` | For GitHub / Notion / Obsidian |
+| **Markdown** | `final/report.md` | Includes CVSS v3.1 base score column — for GitHub / Notion / Obsidian |
 | **Text** | `final/report.txt` | Plain-text summary, pipeable |
-| **JSON** | `logs/stats.json` | Machine-readable stats for CI/CD |
+| **JSON** | `logs/stats.json` | Machine-readable stats with CVSS v3.1 estimates per finding type, for CI/CD |
 
 ---
 
@@ -160,7 +164,7 @@ Verified at startup — all ship with every standard Linux distribution:
 | `wc` | Line/byte counting |
 | `md5sum` | Body hashing for wildcard detection |
 
-Optional (used when available): `dig`, `host`, `bc`
+Optional (used when available): `dig`, `host`, `bc` (bc used for `--rate-limit` ms arithmetic; falls back to pure-bash integer math when absent)
 
 ---
 
@@ -183,7 +187,9 @@ Optional (used when available): `dig`, `host`, `bc`
 │   ├── secrets/findings.txt      # JS secret matches
 │   ├── takeover/candidates.txt   # Takeover fingerprint matches
 │   ├── headers/
-│   │   ├── cors_issues.txt       # CORS misconfigurations
+│   │   ├── cors_issues.txt       # All CORS misconfigurations
+│   │   ├── cors_crit.txt         # CORS credential leak (CRITICAL)
+│   │   ├── cors_high.txt         # CORS wildcard/reflected (HIGH)
 │   │   └── missing_headers.txt   # Missing security headers
 │   ├── reflection/
 │   │   ├── xss_candidates.txt    # XSS with ctx + confidence
@@ -201,11 +207,11 @@ Optional (used when available): `dig`, `host`, `bc`
 │   └── diff/dynamic.txt          # Dynamic parameter URLs
 ├── final/
 │   ├── report.html
-│   ├── report.md
+│   ├── report.md                 # Now includes CVSS v3.1 column
 │   └── report.txt
 └── logs/
     ├── run.log
-    └── stats.json
+    └── stats.json                # Now includes CVSS v3.1 estimates
 ```
 
 ---
@@ -223,15 +229,27 @@ Optional (used when available): `dig`, `host`, `bc`
 
 ## Changelog
 
+### v3.2.0
+- **FIX** CRITICAL: `_acurl` infinite self-recursion — now calls the `curl` binary directly. Authenticated scanning was completely broken in v3.1.
+- **FIX** `_rand_token`: missing `return` after `/dev/urandom` success caused double-output (urandom token + RANDOM fallback concatenated).
+- **FIX** `_rate_sleep`: pure-bash integer fallback when `bc` is absent — `--rate-limit` now works on minimal systems without `bc`.
+- **FIX** `js_urls.txt` concurrent append race: `_extract_js_from_page` workers now write to per-PID tempfiles, merged atomically after `_parallel` completes.
+- **FIX** SQLi WAF detection: checks payload response, not just baseline — WAFs that trigger only on payloads are no longer missed; blocked responses logged as `[SQLI_WAF_BLOCKED]`.
+- **FIX** CORS severity unified: both `report.txt` and the HTML report now classify CORS credential leak as CRITICAL and wildcard/reflected as HIGH.
+- **ADD** `--proxy <host:port>` flag: routes all `_acurl` traffic through Burp/ZAP for manual finding verification; exported as `PROXY_URL`.
+- **ADD** Global token-bucket rate limiter: `--rate-limit` now enforces N ms across **all** workers combined (previously per-worker × N, causing 20× overload at default thread count).
+- **ADD** CVSS v3.1 base score estimates in `logs/stats.json` per finding type.
+- **ADD** Markdown report executive summary now includes a CVSS column.
+
 ### v3.1.0
 - **ADD** `--cookie` flag: session cookie for authenticated scanning
-- **ADD** `--header` flag: arbitrary auth header, repeatable
+- **ADD** `--header` flag: arbitrary auth header (repeatable)
 - **ADD** `_acurl` helper: all 17 probe functions now carry auth on every request
 - **ADD** `AUTH_HEADERS_FILE`: array serialized to temp file for correct subshell export
 - **FIX** XSS: second-request confirmation probe eliminates non-deterministic reflections
 - **FIX** XSS: HTML comment context gate — canary inside comments no longer flagged
 - **FIX** XSS: context (`html`/`attr`/`script`) detected before confidence assignment
-- **FIX** `_acurl` applied consistently across all probe functions: `_http_probe`, `_header_audit`, `_takeover_check`, `_js_scan`, `_graphql_probe`, `_method_check`, `_hostinj_check`, `_cache_hint`, `_api_version_probe`, `_baseline_check`, `_diff_check`, `_idor_check`, `_xss_check`, `_redirect_check`, `_sqli_check`, `_lfi_check`, `_ssrf_oob_probe`
+- **FIX** `_acurl` applied consistently across all 17 probe functions
 
 ### v3.0.0
 - See script header for full v3.0 changelog (30+ fixes and additions over v2.0)
@@ -244,8 +262,6 @@ Nyxora is intended for use only on systems you own or have **explicit written pe
 
 ---
 
----
-
 <div align="center">
-<sub>curl · bash · awk · grep </sub>
+<sub>curl · bash · awk · grep</sub>
 </div>
