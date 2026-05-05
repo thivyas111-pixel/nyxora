@@ -13,9 +13,8 @@
 
 [![Bash](https://img.shields.io/badge/Shell-Bash-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero-blue)](#requirements)
-[![Version](https://img.shields.io/badge/Version-3.2.1-red)](https://github.com/thivyas111-pixel/nyxora)
 
-*curl · bash · awk · grep — nothing to install.*
+*curl · bash · awk · grep - nothing to install.*
 
 </div>
 
@@ -222,39 +221,6 @@ Optional (used when available): `dig`, `host`, `bc` (`bc` used for `--rate-limit
 | 🟠 **HIGH** | XSS, SQLi, LFI, Host Header Injection, CORS wildcard/reflected |
 | 🟡 **MEDIUM** | GraphQL endpoints, HTTP method issues, Cache hints, Open redirects, SSRF |
 | 🔵 **INFO** | API version endpoints, missing headers, server disclosure |
-
----
-
-## Changelog
-
-### v3.2.1
-- **FIX** CRITICAL: Report-generation crash — `"unexpected EOF while looking for matching ''"` on Bash 5.1 (Kali/Debian). Root cause: for-word-lists containing multi-byte UTF-8 (emoji + em-dash) inside `{ }|tee` pipelines caused Bash to miscount string boundaries and leave a single-quote context open. Fixed by converting both report for-word-lists to `mapfile`/indexed-array loops, which are immune to locale/multibyte edge cases. Em-dashes in label strings replaced with plain ` - `.
-- **FIX** Missing final newline at EOF — caused Bash to report the last line as a parse error on some systems.
-- **FIX** `usage()`: `--rate-limit` description still said "per worker" (v3.1 text); corrected to "global token bucket across all workers combined".
-- **FIX** Markdown report CVSS column was listed in the v3.2 changelog but never actually added to the executive summary table — now present.
-- **FIX** Steps 5/6 result log lines were missing timing context; all step-end log calls now include finding count and what was scanned for clarity.
-- **IMPROVE** User-facing log messages across all 21 steps now show scan counts and clear progress context so operators know what happened at a glance without opening output files.
-
-### v3.2.0
-- **FIX** CRITICAL: `_acurl` infinite self-recursion — now calls the `curl` binary directly. Authenticated scanning was completely broken in v3.1.
-- **FIX** `_rand_token`: missing `return` after `/dev/urandom` success caused double-output (urandom token + RANDOM fallback concatenated).
-- **FIX** `_rate_sleep`: pure-bash integer fallback when `bc` is absent — `--rate-limit` now works on minimal systems without `bc`.
-- **FIX** `js_urls.txt` concurrent append race: `_extract_js_from_page` workers now write to per-PID tempfiles, merged atomically after `_parallel` completes.
-- **FIX** SQLi WAF detection: checks payload response, not just baseline — WAFs that trigger only on payloads are no longer missed; blocked responses logged as `[SQLI_WAF_BLOCKED]`.
-- **FIX** CORS severity unified: both `report.txt` and the HTML report now classify CORS credential leak as CRITICAL and wildcard/reflected as HIGH.
-- **ADD** `--proxy <host:port>` flag: routes all `_acurl` traffic through Burp/ZAP for manual finding verification; exported as `PROXY_URL`.
-- **ADD** Global token-bucket rate limiter: `--rate-limit` now enforces N ms across **all** workers combined (previously per-worker × N, causing 20× overload at default thread count).
-- **ADD** CVSS v3.1 base score estimates in `logs/stats.json` per finding type.
-- **ADD** Markdown report executive summary CVSS column (completed in v3.2.1).
-
-- **ADD** `--cookie` flag: session cookie for authenticated scanning
-- **ADD** `--header` flag: arbitrary auth header (repeatable)
-- **ADD** `_acurl` helper: all 17 probe functions now carry auth on every request
-- **ADD** `AUTH_HEADERS_FILE`: array serialized to temp file for correct subshell export
-- **FIX** XSS: second-request confirmation probe eliminates non-deterministic reflections
-- **FIX** XSS: HTML comment context gate — canary inside comments no longer flagged
-- **FIX** XSS: context (`html`/`attr`/`script`) detected before confidence assignment
-- **FIX** `_acurl` applied consistently across all 17 probe functions
 
 ---
 
